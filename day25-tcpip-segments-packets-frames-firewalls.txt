@@ -1,0 +1,981 @@
+===============================================================
+   120 DAYS OF DEVOPS — DAY 25
+   Topic: TCP/IP Model Deep Dive — Every Layer
+          Segments, Packets, Frames, Firewalls,
+          IPv4, IPv6, TCP & UDP Protocols
+===============================================================
+
+Author   : Dinesh
+Day      : 25 / 120
+Topic    : TCP/IP Layer Deep Dive, Segment Structure,
+           Packet Structure, Frame Structure,
+           Firewalls, IPv4, IPv6, TCP vs UDP
+Phase    : Phase 5 — Networking for DevOps
+Resource : Kunal Kushwaha Networking Video
+           https://youtu.be/IPvYjXCsTg8
+
+===============================================================
+TABLE OF CONTENTS
+===============================================================
+
+  1.  TCP/IP Model Recap
+  2.  Transport Layer — Segment Deep Dive
+  3.  TCP Protocol Deep Dive
+  4.  UDP Protocol Deep Dive
+  5.  TCP vs UDP Full Comparison
+  6.  Network Layer — Packet Deep Dive
+  7.  IPv4 — Deep Dive
+  8.  IPv6 — Deep Dive
+  9.  IPv4 vs IPv6 Comparison
+  10. Data Link Layer — Frame Deep Dive
+  11. Firewalls — Deep Dive
+  12. How Data Travels — Complete Example
+  13. Key Takeaways from Day 25
+
+---------------------------------------------------------------
+1. TCP/IP MODEL RECAP
+---------------------------------------------------------------
+
+  TCP/IP MODEL LAYERS:
+
+  ┌─────────────────────────────────────────────────────────┐
+  │  LAYER 4 — APPLICATION                                  │
+  │  HTTP, HTTPS, DNS, SSH, FTP, SMTP, DHCP                 │
+  │  Data Unit: Data / Message                              │
+  ├─────────────────────────────────────────────────────────┤
+  │  LAYER 3 — TRANSPORT                                    │
+  │  TCP, UDP                                               │
+  │  Data Unit: Segment (TCP) / Datagram (UDP)              │
+  ├─────────────────────────────────────────────────────────┤
+  │  LAYER 2 — INTERNET                                     │
+  │  IP, ICMP, ARP, BGP, OSPF                               │
+  │  Data Unit: Packet                                      │
+  ├─────────────────────────────────────────────────────────┤
+  │  LAYER 1 — NETWORK ACCESS                               │
+  │  Ethernet, WiFi, MAC                                    │
+  │  Data Unit: Frame                                       │
+  └─────────────────────────────────────────────────────────┘
+
+  ENCAPSULATION SUMMARY:
+
+  Application creates → DATA
+  Transport wraps it → SEGMENT (TCP) or DATAGRAM (UDP)
+  Internet wraps it  → PACKET
+  Network Access wraps it → FRAME
+  Physical transmits → BITS (0s and 1s)
+
+  KEY INSIGHT:
+  Each layer ONLY reads and removes its OWN header.
+  Transport layer does not know about IP addresses.
+  Network layer does not know about ports.
+  Each layer minds its own business!
+
+---------------------------------------------------------------
+2. TRANSPORT LAYER — SEGMENT DEEP DIVE
+---------------------------------------------------------------
+
+  What is a Segment?
+  A segment is the data unit created by TCP at the
+  Transport layer. It wraps application data with
+  TCP header containing control information.
+
+  TCP SEGMENT STRUCTURE:
+
+  ┌──────────────────────────────────────────────────────┐
+  │                    TCP SEGMENT                       │
+  ├──────────────┬───────────────────────────────────────┤
+  │  TCP HEADER (20-60 bytes)                            │
+  ├──────────────┬───────────────────────────────────────┤
+  │ Source Port  │ Destination Port  (16 bits each)      │
+  ├──────────────┴───────────────────────────────────────┤
+  │ Sequence Number                   (32 bits)          │
+  ├──────────────────────────────────────────────────────┤
+  │ Acknowledgment Number             (32 bits)          │
+  ├────────┬─────────────┬────────────────────────────────┤
+  │ Offset │ Reserved    │ Flags (URG,ACK,PSH,RST,SYN,FIN)│
+  ├────────┴─────────────┴────────────────────────────────┤
+  │ Window Size                       (16 bits)          │
+  ├──────────────────────────────────────────────────────┤
+  │ Checksum                          (16 bits)          │
+  ├──────────────────────────────────────────────────────┤
+  │ Urgent Pointer                    (16 bits)          │
+  ├──────────────────────────────────────────────────────┤
+  │ Options (if any)                  (variable)         │
+  ├──────────────────────────────────────────────────────┤
+  │                APPLICATION DATA                      │
+  │            (payload from layer above)                │
+  └──────────────────────────────────────────────────────┘
+
+  EACH FIELD EXPLAINED:
+
+  FIELD                   SIZE      PURPOSE
+  -----                   ----      -------
+  Source Port             16 bits   Sending application port
+  Destination Port        16 bits   Receiving application port
+  Sequence Number         32 bits   Position of this segment in stream
+  Acknowledgment Number   32 bits   Next expected sequence number
+  Data Offset             4 bits    Where data starts (header length)
+  Reserved                6 bits    Future use (always 0)
+  Flags                   6 bits    Control bits (see below)
+  Window Size             16 bits   Flow control buffer size
+  Checksum                16 bits   Error detection
+  Urgent Pointer          16 bits   Points to urgent data (if URG set)
+  Options                 variable  MSS, timestamps, etc.
+  Data/Payload            variable  Actual application data
+
+  TCP FLAGS IN DETAIL:
+
+  FLAG    BIT   PURPOSE
+  ----    ---   -------
+  URG     bit 5  Urgent data present — process immediately
+  ACK     bit 4  Acknowledgment field is valid
+  PSH     bit 3  Push — send data to app immediately, no buffering
+  RST     bit 2  Reset connection immediately (abort)
+  SYN     bit 1  Synchronize sequence numbers (start connection)
+  FIN     bit 0  No more data from sender (end connection)
+
+  FLAG COMBINATIONS IN PRACTICE:
+
+  FLAGS       MEANING
+  -----       -------
+  SYN         Initial connection request
+  SYN+ACK     Server accepts connection
+  ACK         Acknowledgment of received data
+  FIN+ACK     Graceful connection close
+  RST         Abrupt connection reset
+  PSH+ACK     Send buffered data immediately
+
+  SEQUENCE & ACKNOWLEDGMENT NUMBERS:
+
+  WHY SEQUENCE NUMBERS?
+  → Each byte of data gets a sequence number
+  → Allows receiver to reorder out-of-order segments
+  → Allows detection of missing segments
+  → Allows retransmission of lost segments
+
+  EXAMPLE:
+  Client sends 1000 bytes → Seq=1
+  Server receives → ACK=1001 (expecting byte 1001 next)
+  Client sends next 1000 bytes → Seq=1001
+  Server receives → ACK=2001
+
+  WINDOW SIZE & FLOW CONTROL:
+  → Window size = how much data receiver can buffer
+  → Sender cannot send more than window size at once
+  → Prevents fast sender overwhelming slow receiver
+  → Receiver adjusts window size dynamically
+  → Window=0 means "stop sending, I'm full!"
+
+  CHECKSUM:
+  → Calculated over header + data
+  → Receiver recalculates and compares
+  → If different = data was corrupted → discard!
+  → TCP will retransmit corrupted segments
+
+  UDP DATAGRAM STRUCTURE (much simpler):
+
+  ┌──────────────────────────────────────────────────────┐
+  │                   UDP DATAGRAM                       │
+  ├──────────────────────────────────────────────────────┤
+  │  UDP HEADER (only 8 bytes!)                          │
+  ├──────────────────┬───────────────────────────────────┤
+  │  Source Port     │  Destination Port  (16 bits each) │
+  ├──────────────────┴───────────────────────────────────┤
+  │  Length                            (16 bits)         │
+  ├──────────────────────────────────────────────────────┤
+  │  Checksum                          (16 bits)         │
+  ├──────────────────────────────────────────────────────┤
+  │              APPLICATION DATA                        │
+  └──────────────────────────────────────────────────────┘
+
+  UDP header = only 4 fields, 8 bytes total!
+  No sequence numbers, no acknowledgment, no flow control.
+  That's why UDP is so much faster than TCP!
+
+---------------------------------------------------------------
+3. TCP PROTOCOL DEEP DIVE
+---------------------------------------------------------------
+
+  TCP = Transmission Control Protocol
+  Connection-oriented, reliable, ordered delivery.
+
+  TCP CONNECTION LIFECYCLE:
+
+  PHASE 1: CONNECTION ESTABLISHMENT (3-Way Handshake)
+
+  CLIENT                          SERVER
+    |                               |
+    |--- SYN (seq=x) -------------->|  "Let's connect, my seq is x"
+    |                               |
+    |<-- SYN-ACK (seq=y, ack=x+1) --|  "OK! My seq is y, got your x"
+    |                               |
+    |--- ACK (ack=y+1) ------------>|  "Got it! Expecting y+1 next"
+    |                               |
+    |     CONNECTION ESTABLISHED    |
+
+  PHASE 2: DATA TRANSFER
+
+  CLIENT                          SERVER
+    |                               |
+    |--- DATA (seq=x+1) ----------->|  Send data
+    |<-- ACK (ack=x+1+len) ---------|  Acknowledge
+    |                               |
+    |<-- DATA (seq=y+1) ------------|  Server sends data
+    |--- ACK (ack=y+1+len) -------->|  Acknowledge
+
+  PHASE 3: CONNECTION TERMINATION (4-Way)
+
+  CLIENT                          SERVER
+    |                               |
+    |--- FIN (seq=u) -------------->|  "I'm done sending"
+    |<-- ACK (ack=u+1) -------------|  "OK, got your FIN"
+    |<-- FIN (seq=v) ---------------|  "I'm done too"
+    |--- ACK (ack=v+1) ------------>|  "OK, closing"
+    |                               |
+    |       CONNECTION CLOSED       |
+
+  TCP RELIABILITY MECHANISMS:
+
+  1. ACKNOWLEDGMENTS:
+     Receiver sends ACK for every segment received.
+     Sender knows what arrived safely.
+
+  2. RETRANSMISSION:
+     If ACK not received within timeout → retransmit!
+     Timer starts when segment sent.
+     Exponential backoff on repeated failures.
+
+  3. SEQUENCE NUMBERS:
+     Detect gaps in received data.
+     Reorder out-of-order segments.
+
+  4. FLOW CONTROL (Window Size):
+     Prevents sender overwhelming receiver buffer.
+     Receiver advertises available buffer space.
+
+  5. CONGESTION CONTROL:
+     Prevents overloading network infrastructure.
+     Slow Start → Congestion Avoidance → Fast Recovery
+
+  TCP STATES:
+
+  STATE           MEANING
+  -----           -------
+  CLOSED          No connection exists
+  LISTEN          Server waiting for connections
+  SYN_SENT        Client sent SYN, waiting SYN-ACK
+  SYN_RECEIVED    Server received SYN, sent SYN-ACK
+  ESTABLISHED     Active connection, transferring data
+  FIN_WAIT_1      Sent FIN, waiting for ACK
+  FIN_WAIT_2      Got ACK for FIN, waiting server FIN
+  CLOSE_WAIT      Got FIN, waiting app to close
+  LAST_ACK        Sent FIN, waiting final ACK
+  TIME_WAIT       Waiting to ensure remote got ACK
+  CLOSING         Both sides closing simultaneously
+
+  VIEWING TCP STATES IN LINUX:
+  netstat -an                    → all connections and states
+  netstat -an | grep ESTABLISHED → active connections
+  netstat -an | grep LISTEN      → listening services
+  ss -tulpn                      → modern alternative
+  ss -s                          → connection statistics
+
+---------------------------------------------------------------
+4. UDP PROTOCOL DEEP DIVE
+---------------------------------------------------------------
+
+  UDP = User Datagram Protocol
+  Connectionless, unreliable, fast delivery.
+
+  UDP CHARACTERISTICS:
+
+  NO CONNECTION SETUP:
+  → Just send data directly
+  → No handshake overhead
+  → No connection state maintained
+  → Much lower latency!
+
+  NO RELIABILITY:
+  → No acknowledgments
+  → No retransmission of lost packets
+  → Application must handle errors if needed
+
+  NO ORDERING:
+  → Datagrams may arrive out of order
+  → No sequence numbers to reorder
+  → Application handles ordering if needed
+
+  NO FLOW CONTROL:
+  → No window size mechanism
+  → Sender can overwhelm receiver
+  → Network can get congested
+
+  WHEN UDP IS PERFECT:
+
+  USE CASE          WHY UDP WINS
+  --------          ------------
+  DNS queries       Single request/response, fast
+  Video streaming   Few lost frames = OK, speed matters
+  Online gaming     Low latency critical, small losses OK
+  VoIP calls        Real-time, slight loss acceptable
+  Live broadcast    One-way, latency critical
+  IoT telemetry     Frequent small packets, loss OK
+  DHCP              Broadcast-based, simple exchange
+  SNMP monitoring   Simple polling, loss acceptable
+  NTP time sync     Simple, fast, occasional loss OK
+  Multicast         One-to-many, no connection possible
+
+  UDP WITH RELIABILITY (Application Layer):
+  Some applications add reliability ON TOP of UDP:
+  → QUIC (HTTP/3) = UDP + reliability at app layer
+  → WebRTC = UDP + its own reliability mechanisms
+  → DTLS = Datagram TLS = security over UDP
+
+---------------------------------------------------------------
+5. TCP vs UDP FULL COMPARISON
+---------------------------------------------------------------
+
+  FEATURE               TCP                     UDP
+  -------               ---                     ---
+  Connection            Connection-oriented     Connectionless
+  Handshake             3-way handshake         None
+  Reliability           Guaranteed delivery     Best effort
+  Ordering              Ordered delivery        No ordering
+  Flow control          YES (window size)       NO
+  Congestion control    YES                     NO
+  Error checking        Checksum + retransmit   Checksum only
+  Header size           20-60 bytes             8 bytes only
+  Speed                 Slower (overhead)       Faster
+  Bandwidth use         More                    Less
+  State maintained      YES (stateful)          NO (stateless)
+  Broadcast support     NO                      YES
+  Multicast support     NO                      YES
+  Use cases             Web, SSH, email, FTP    DNS, video, games
+
+  PROTOCOL TO TRANSPORT MAPPING:
+
+  PROTOCOL    TRANSPORT   WHY
+  --------    ---------   ---
+  HTTP/HTTPS  TCP         Reliability needed for web pages
+  SSH         TCP         Reliability needed for remote access
+  FTP         TCP         File transfer must be accurate
+  SMTP/IMAP   TCP         Email must not lose data
+  DNS         UDP         Fast single query/response
+  DHCP        UDP         Broadcast based, simple
+  VoIP        UDP         Real-time, low latency needed
+  Video stream UDP         Speed over perfection
+  Online games UDP         Low latency critical
+  NTP         UDP         Simple, fast time sync
+  SNMP        UDP         Simple monitoring queries
+  HTTP/3      UDP(QUIC)   Modern web - UDP + reliability
+
+---------------------------------------------------------------
+6. NETWORK LAYER — PACKET DEEP DIVE
+---------------------------------------------------------------
+
+  What is a Packet?
+  A packet is the data unit at the Internet/Network layer.
+  Created when IP header is added to a TCP Segment or UDP
+  Datagram.
+
+  IPv4 PACKET STRUCTURE:
+
+  ┌──────────────────────────────────────────────────────┐
+  │                    IPv4 PACKET                       │
+  ├──────────────────────────────────────────────────────┤
+  │  IP HEADER (20-60 bytes)                             │
+  ├────────┬───────────┬──────────────────────────────────┤
+  │Version │Header Len │ DSCP / ECN    (Type of Service) │
+  ├────────┴───────────┴──────────────────────────────────┤
+  │ Total Length                       (16 bits)         │
+  ├──────────────────────┬────────────────────────────────┤
+  │ Identification       │ Flags + Fragment Offset        │
+  ├──────────────────────┴────────────────────────────────┤
+  │ TTL (8 bits)    │ Protocol (8 bits) │ Header Checksum │
+  ├──────────────────────────────────────────────────────┤
+  │ Source IP Address                  (32 bits)         │
+  ├──────────────────────────────────────────────────────┤
+  │ Destination IP Address             (32 bits)         │
+  ├──────────────────────────────────────────────────────┤
+  │ Options (if any)                   (variable)        │
+  ├──────────────────────────────────────────────────────┤
+  │          PAYLOAD (TCP Segment or UDP Datagram)        │
+  └──────────────────────────────────────────────────────┘
+
+  EACH FIELD EXPLAINED:
+
+  FIELD               SIZE      PURPOSE
+  -----               ----      -------
+  Version             4 bits    IPv4 = 4, IPv6 = 6
+  Header Length       4 bits    Length of IP header
+  DSCP/ECN            8 bits    Quality of Service marking
+  Total Length        16 bits   Total packet size (header+data)
+  Identification      16 bits   Fragment identification
+  Flags               3 bits    Don't Fragment (DF), More Fragments (MF)
+  Fragment Offset     13 bits   Position in original packet
+  TTL                 8 bits    Hops remaining before discard
+  Protocol            8 bits    6=TCP, 17=UDP, 1=ICMP, 89=OSPF
+  Header Checksum     16 bits   Error detection for header only
+  Source IP           32 bits   Sender's IP address
+  Destination IP      32 bits   Receiver's IP address
+  Options             variable  Rarely used extra options
+  Payload             variable  TCP segment or UDP datagram
+
+  TTL (Time To Live) — KEY CONCEPT:
+
+  → Starts at 64 or 128 (OS dependent)
+  → Every router DECREMENTS TTL by 1
+  → When TTL reaches 0 → packet DISCARDED
+  → Router sends ICMP "Time Exceeded" back to sender
+  → Prevents packets looping forever on internet!
+
+  TTL values by OS:
+  Linux/Android  → 64
+  Windows        → 128
+  Cisco routers  → 255
+
+  PROTOCOL FIELD VALUES:
+
+  VALUE   PROTOCOL
+  -----   --------
+  1       ICMP (ping, traceroute)
+  6       TCP
+  17      UDP
+  47      GRE (tunneling)
+  50      ESP (IPSec encryption)
+  51      AH (IPSec authentication)
+  89      OSPF (routing)
+
+  FRAGMENTATION:
+  → MTU (Maximum Transmission Unit) = max packet size
+  → Ethernet MTU = 1500 bytes
+  → Packets larger than MTU get fragmented
+  → Each fragment has same Identification number
+  → Fragment Offset tells reassembly position
+  → DF flag = Don't Fragment (drop if too big)
+  → Modern networks use Path MTU Discovery instead
+
+  TRACEROUTE USES TTL:
+  → Sends packet with TTL=1 → first router discards, replies
+  → Sends packet with TTL=2 → second router discards, replies
+  → Increases TTL each time → maps entire path to destination!
+
+  traceroute google.com       → show path to google
+  traceroute -n google.com    → no DNS resolution (faster)
+
+---------------------------------------------------------------
+7. IPv4 — DEEP DIVE
+---------------------------------------------------------------
+
+  IPv4 = Internet Protocol version 4
+  32-bit addresses. Still dominant today.
+
+  IPv4 ADDRESS FORMAT:
+  Four octets separated by dots.
+  Each octet = 8 bits = 0 to 255
+
+  192.168.1.100
+  ─────────────────────────────────────────
+  11000000.10101000.00000001.01100100
+  ─────────────────────────────────────────
+  (8 bits) (8 bits) (8 bits) (8 bits)
+  = 32 bits total
+
+  IPv4 ADDRESS TYPES:
+
+  TYPE          EXAMPLE             PURPOSE
+  ----          -------             -------
+  Unicast       192.168.1.10        One specific device
+  Broadcast     192.168.1.255       All devices on network
+  Multicast     224.0.0.1           Group of devices
+  Loopback      127.0.0.1           Your own device
+  Link-local    169.254.x.x         Auto-assigned (no DHCP)
+  Private       10.x, 172.16.x      Internal networks
+  Public        everything else     Internet routable
+
+  IPv4 LIMITATIONS:
+  → Only 2^32 = 4,294,967,296 total addresses
+  → Many already used, reserved, or wasted
+  → NAT (Network Address Translation) is workaround
+  → Running out! IPv6 is the solution
+
+  NAT — Network Address Translation:
+  → Multiple private IPs share ONE public IP
+  → Router translates between private and public
+  → Home router = NAT device
+  → AWS NAT Gateway = NAT device
+  → Solves IPv4 shortage temporarily
+
+  PRIVATE IP → NAT → PUBLIC IP → INTERNET
+                ↑
+          NAT table tracks
+          which private IP
+          made which request
+
+---------------------------------------------------------------
+8. IPv6 — DEEP DIVE
+---------------------------------------------------------------
+
+  IPv6 = Internet Protocol version 6
+  128-bit addresses. Permanent solution to address shortage.
+
+  IPv6 ADDRESS FORMAT:
+  Eight groups of 4 hexadecimal digits separated by colons.
+
+  2001:0db8:85a3:0000:0000:8a2e:0370:7334
+
+  SHORTENING RULES:
+  1. Remove leading zeros in each group:
+     0db8 → db8  |  0000 → 0  |  0370 → 370
+
+  2. Replace consecutive all-zero groups with ::
+     2001:db8:85a3:0:0:8a2e:370:7334
+     →
+     2001:db8:85a3::8a2e:370:7334
+
+  :: can only appear ONCE in an address!
+
+  IPv6 ADDRESS TYPES:
+
+  TYPE              PREFIX        PURPOSE
+  ----              ------        -------
+  Global Unicast    2000::/3      Public internet addresses
+  Link-Local        fe80::/10     Auto-configured, local only
+  Loopback          ::1/128       Same as 127.0.0.1 in IPv4
+  Multicast         ff00::/8      One-to-many communication
+  Unique Local      fc00::/7      Private addresses (like RFC1918)
+  Unspecified       ::/128        Not yet assigned
+
+  IPv6 ADVANTAGES OVER IPv4:
+
+  FEATURE           IPv4              IPv6
+  -------           ----              ----
+  Address size      32 bits           128 bits
+  Total addresses   4.3 billion       340 undecillion
+  NAT needed        YES               NO (enough IPs!)
+  Header size       Variable (20-60B) Fixed (40 bytes)
+  Header checksum   YES               NO (removed!)
+  Fragmentation     By routers        By source only
+  Auto-config       DHCP needed       SLAAC built-in
+  Security (IPSec)  Optional          Built-in
+  Broadcast         YES               NO (multicast instead)
+  QoS               DSCP field        Flow Label field
+  Mobility          Limited           Better support
+
+  IPv6 HEADER STRUCTURE (simpler than IPv4!):
+
+  ┌──────────────────────────────────────────────────────┐
+  │              IPv6 HEADER (fixed 40 bytes!)           │
+  ├──────────────────────────────────────────────────────┤
+  │ Version(4) │ Traffic Class(8) │ Flow Label(20)       │
+  ├──────────────────────────────────────────────────────┤
+  │ Payload Length(16)  │ Next Header(8) │ Hop Limit(8)  │
+  ├──────────────────────────────────────────────────────┤
+  │ Source Address                    (128 bits)         │
+  ├──────────────────────────────────────────────────────┤
+  │ Destination Address               (128 bits)         │
+  └──────────────────────────────────────────────────────┘
+
+  KEY IPv6 FIELDS:
+  Traffic Class → QoS (same as DSCP in IPv4)
+  Flow Label    → Identifies packet flows for QoS
+  Next Header   → What follows (TCP=6, UDP=17, ICMPv6=58)
+  Hop Limit     → Same as TTL in IPv4
+
+  LINUX IPv6 COMMANDS:
+  ip -6 addr                    → show IPv6 addresses
+  ip -6 route                   → show IPv6 routes
+  ping6 ::1                     → ping IPv6 loopback
+  ping6 fe80::1%eth0            → ping link-local
+  traceroute6 google.com        → IPv6 traceroute
+  curl -6 https://google.com    → force IPv6 connection
+
+---------------------------------------------------------------
+9. DATA LINK LAYER — FRAME DEEP DIVE
+---------------------------------------------------------------
+
+  What is a Frame?
+  A frame is the data unit at the Data Link layer.
+  Created when Ethernet header (and trailer) added to IP packet.
+  Responsible for delivery on LOCAL network segment.
+
+  ETHERNET FRAME STRUCTURE:
+
+  ┌─────────────────────────────────────────────────────────┐
+  │                   ETHERNET FRAME                        │
+  ├─────────────────────────────────────────────────────────┤
+  │ Preamble        (7 bytes)  Synchronization signal       │
+  ├─────────────────────────────────────────────────────────┤
+  │ SFD             (1 byte)   Start Frame Delimiter        │
+  ├─────────────────────────────────────────────────────────┤
+  │ Destination MAC (6 bytes)  Where frame is going         │
+  ├─────────────────────────────────────────────────────────┤
+  │ Source MAC      (6 bytes)  Where frame came from        │
+  ├─────────────────────────────────────────────────────────┤
+  │ EtherType/Length(2 bytes)  0x0800=IPv4, 0x86DD=IPv6     │
+  ├─────────────────────────────────────────────────────────┤
+  │ PAYLOAD         (46-1500 bytes)  IP Packet goes here    │
+  ├─────────────────────────────────────────────────────────┤
+  │ FCS/CRC         (4 bytes)  Frame Check Sequence         │
+  └─────────────────────────────────────────────────────────┘
+
+  FIELD DETAILS:
+
+  FIELD           SIZE      PURPOSE
+  -----           ----      -------
+  Preamble        7 bytes   Clock synchronization pattern
+  SFD             1 byte    Marks start of actual frame
+  Dest MAC        6 bytes   Recipient hardware address
+  Source MAC      6 bytes   Sender hardware address
+  EtherType       2 bytes   Type of payload (IPv4/IPv6/ARP)
+  Payload         46-1500B  Actual data (IP packet)
+  FCS/CRC         4 bytes   Error detection (cyclic redundancy)
+
+  MAC ADDRESS STRUCTURE:
+  48 bits total = 6 bytes = 12 hex characters
+
+  Example: 00:1A:2B:3C:4D:5E
+           ────────  ────────
+           OUI       Device ID
+           (Vendor)  (Unique)
+
+  OUI = Organizationally Unique Identifier
+  → Assigned by IEEE to manufacturers
+  → First 3 bytes identify the manufacturer
+  → Last 3 bytes = device specific serial
+
+  SPECIAL MAC ADDRESSES:
+  FF:FF:FF:FF:FF:FF → Broadcast (send to everyone!)
+  01:xx:xx:xx:xx:xx → Multicast
+
+  ARP — Address Resolution Protocol:
+  → Finds MAC address for a known IP address
+  → Essential for frame delivery!
+
+  How ARP works:
+  "I need to send to 192.168.1.50 but need its MAC!"
+  Step 1: Broadcast ARP Request to FF:FF:FF:FF:FF:FF
+          "Who has 192.168.1.50? Tell 192.168.1.1"
+  Step 2: Device with that IP replies (unicast)
+          "192.168.1.50 is at AA:BB:CC:DD:EE:FF"
+  Step 3: MAC cached in ARP table
+  Step 4: Frame can now be sent to correct MAC!
+
+  LINUX ARP COMMANDS:
+  arp -a                        → show ARP table
+  arp -n                        → show without DNS resolution
+  ip neigh                      → modern ARP table view
+  ip neigh show                 → show neighbor/ARP cache
+  arping 192.168.1.1            → ARP ping to host
+
+  FRAME vs PACKET:
+
+  FRAME:
+  → Lives at Data Link layer
+  → Has MAC addresses (hardware)
+  → Only travels within ONE network segment
+  → Gets RECREATED at every router hop!
+  → Router strips frame, reads packet, creates NEW frame!
+
+  PACKET:
+  → Lives at Network layer
+  → Has IP addresses (logical)
+  → Travels end-to-end across internet
+  → IP addresses NEVER change during journey
+  → Source/Dest IPs remain same from start to finish!
+
+  KEY INSIGHT:
+  MAC addresses change at every router hop!
+  IP addresses stay the same entire journey!
+
+  Frame hop 1: SrcMAC=YourPC  DstMAC=Router1
+  Frame hop 2: SrcMAC=Router1 DstMAC=Router2
+  Frame hop 3: SrcMAC=Router2 DstMAC=GoogleServer
+
+  But IP packet throughout: SrcIP=Your IP DstIP=Google IP
+
+---------------------------------------------------------------
+10. FIREWALLS — DEEP DIVE
+---------------------------------------------------------------
+
+  What is a Firewall?
+  A security system that monitors and controls
+  incoming and outgoing network traffic based on rules.
+
+  FIREWALL TYPES BY OSI LAYER:
+
+  ┌─────────────────────────────────────────────────────────┐
+  │ TYPE                LAYER    FILTERS ON                 │
+  ├─────────────────────────────────────────────────────────┤
+  │ Packet Filter       3/4      IP addr, ports, protocol   │
+  │ Stateful Firewall   4        Connection state + above   │
+  │ Application FW      7        HTTP content, URLs, apps   │
+  │ Next-Gen FW (NGFW)  3-7      All layers combined        │
+  │ WAF                 7        HTTP attacks specifically  │
+  └─────────────────────────────────────────────────────────┘
+
+  PACKET FILTER FIREWALL (Layer 3/4):
+
+  → Examines each packet independently
+  → Filters based on:
+    Source IP address
+    Destination IP address
+    Protocol (TCP/UDP/ICMP)
+    Source port
+    Destination port
+  → Does NOT track connection state
+  → Fast but less intelligent
+  → Example: iptables basic rules
+
+  STATEFUL FIREWALL (Layer 4):
+
+  → Tracks state of network connections
+  → Maintains connection state table
+  → Allows return traffic automatically
+  → Much smarter than packet filter
+  → Example: iptables with state tracking, AWS Security Groups
+
+  Connection states tracked:
+  NEW       → First packet of new connection
+  ESTABLISHED → Packet of existing connection
+  RELATED   → Related to existing connection
+  INVALID   → Doesn't match any known connection
+
+  APPLICATION FIREWALL (Layer 7):
+
+  → Inspects actual application content
+  → Understands HTTP, FTP, DNS protocols
+  → Can filter based on URLs, keywords, file types
+  → Detects application-layer attacks
+  → Example: AWS WAF, Nginx as proxy firewall
+
+  WAF — WEB APPLICATION FIREWALL:
+
+  → Specifically protects web applications
+  → Filters HTTP/HTTPS traffic
+  → Protects against:
+    SQL Injection
+    Cross-Site Scripting (XSS)
+    Cross-Site Request Forgery (CSRF)
+    DDoS attacks
+    Bot traffic
+
+  LINUX FIREWALL TOOLS:
+
+  TOOL          DESCRIPTION
+  ----          -----------
+  iptables      Traditional Linux firewall (still widely used)
+  nftables      Modern replacement for iptables
+  ufw           User-friendly frontend for iptables (Ubuntu)
+  firewalld     Dynamic firewall manager (RHEL/CentOS)
+
+  BASIC iptables RULES:
+
+  # View all rules
+  iptables -L -n -v
+
+  # Allow established connections
+  iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
+
+  # Allow SSH
+  iptables -A INPUT -p tcp --dport 22 -j ACCEPT
+
+  # Allow HTTP and HTTPS
+  iptables -A INPUT -p tcp --dport 80 -j ACCEPT
+  iptables -A INPUT -p tcp --dport 443 -j ACCEPT
+
+  # Block specific IP
+  iptables -A INPUT -s 1.2.3.4 -j DROP
+
+  # Default deny all incoming
+  iptables -P INPUT DROP
+
+  # Allow all outgoing
+  iptables -P OUTPUT ACCEPT
+
+  UFW COMMANDS (Easier!):
+
+  ufw status                    → check firewall status
+  ufw enable                    → enable firewall
+  ufw disable                   → disable firewall
+  ufw allow 22/tcp              → allow SSH
+  ufw allow 80/tcp              → allow HTTP
+  ufw allow 443/tcp             → allow HTTPS
+  ufw deny 23/tcp               → block Telnet
+  ufw allow from 10.0.0.0/24   → allow from subnet
+  ufw delete allow 80/tcp       → remove rule
+  ufw reset                     → reset all rules
+
+  AWS FIREWALL COMPARISON:
+
+  AWS SERVICE     TYPE              LAYER   SCOPE
+  -----------     ----              -----   -----
+  Security Group  Stateful FW       4       Instance
+  Network ACL     Stateless FW      3/4     Subnet
+  WAF             App Firewall      7       ALB/CloudFront
+  Shield          DDoS Protection   3/4     Account
+  Network FW      NGFW              3-7     VPC
+
+---------------------------------------------------------------
+11. HOW DATA TRAVELS — COMPLETE EXAMPLE
+---------------------------------------------------------------
+
+  SCENARIO: You visit https://www.google.com
+
+  YOUR DEVICE (192.168.1.100, MAC: AA:BB:CC:DD:EE:FF)
+  HOME ROUTER (192.168.1.1, MAC: 11:22:33:44:55:66)
+  GOOGLE SERVER (142.250.180.46, MAC: 99:88:77:66:55:44)
+
+  STEP 1: APPLICATION LAYER
+  Browser creates HTTP GET request:
+  GET / HTTP/1.1
+  Host: www.google.com
+
+  STEP 2: TRANSPORT LAYER
+  TCP creates segment:
+  [SrcPort:52345 | DstPort:443 | Seq:1 | ACK | Data]
+
+  STEP 3: INTERNET/NETWORK LAYER
+  IP creates packet:
+  [SrcIP:192.168.1.100 | DstIP:142.250.180.46 | TTL:64 | Segment]
+
+  STEP 4: DATA LINK LAYER (Your PC to Router)
+  Ethernet creates frame:
+  [SrcMAC:AA:BB | DstMAC:11:22 | Packet | FCS]
+  Note: DstMAC = Your ROUTER (not Google!)
+
+  STEP 5: PHYSICAL LAYER
+  Frame converted to electrical signals/bits
+  Transmitted over cable/WiFi to router
+
+  AT HOME ROUTER:
+  → Receives frame, strips frame header (reads MAC)
+  → Reads IP packet (destination = Google)
+  → Performs NAT: replaces 192.168.1.100 with public IP
+  → Creates NEW frame with Router MAC as source
+  → Sends toward ISP and internet
+
+  AT EACH INTERNET ROUTER:
+  → Strips and reads frame (checks MAC)
+  → Reads IP packet (decrements TTL!)
+  → Looks up destination IP in routing table
+  → Creates NEW frame for next hop
+  → Forwards toward Google
+
+  AT GOOGLE SERVER:
+  → Receives frame, strips frame
+  → Reads IP packet, strips IP header
+  → Reads TCP segment, strips TCP header
+  → Passes HTTP request to web application!
+
+  REMEMBER:
+  IP addresses: SAME the entire journey
+  MAC addresses: CHANGE at every router hop!
+
+---------------------------------------------------------------
+12. KEY TAKEAWAYS FROM DAY 25
+---------------------------------------------------------------
+
+  [01] TCP Segment contains: source/dest ports, sequence
+       number, acknowledgment number, flags, window size,
+       checksum. 20+ bytes of header overhead!
+
+  [02] UDP Datagram contains ONLY: source/dest ports,
+       length, checksum. Just 8 bytes overhead!
+       This is why UDP is so much faster than TCP!
+
+  [03] Sequence numbers allow TCP to:
+       → Detect missing segments
+       → Reorder out-of-order segments
+       → Acknowledge specific bytes received
+       → Retransmit only what was lost!
+
+  [04] IP Packet contains: source/dest IP, TTL, protocol,
+       checksum. TTL prevents infinite routing loops!
+       Each router decrements TTL by 1.
+
+  [05] TTL typical values: Linux=64, Windows=128, Cisco=255
+       You can tell which OS sent a packet by TTL value!
+
+  [06] Ethernet Frame contains: source/dest MAC, EtherType,
+       payload (IP packet), FCS error check.
+       Minimum frame = 64 bytes, Maximum = 1518 bytes!
+
+  [07] IP addresses NEVER change during packet journey.
+       MAC addresses CHANGE at EVERY router hop!
+       This is the most important networking insight!
+
+  [08] ARP maps IP addresses to MAC addresses.
+       Essential for frame delivery on local network.
+       ARP table cached to avoid repeated broadcasts!
+
+  [09] IPv4 = 32 bits = 4.3 billion addresses (running out!)
+       IPv6 = 128 bits = 340 undecillion (never runs out!)
+       IPv6 header is FIXED 40 bytes vs IPv4 variable size!
+
+  [10] Stateful firewall tracks connection state.
+       Allows return traffic automatically!
+       Stateless (NACL) must explicitly allow both directions!
+
+  [11] Layer 4 firewall filters on IP + ports.
+       Layer 7 firewall (WAF) reads HTTP content.
+       Right tool for right layer — know the difference!
+
+  [12] Fragmentation happens when packet > MTU (1500 bytes).
+       IPv4: routers can fragment.
+       IPv6: only source device can fragment!
+       Modern networks use Path MTU Discovery to avoid this.
+
+===============================================================
+QUICK REFERENCE CHEAT SHEET
+===============================================================
+
+  TCP SEGMENT HEADER KEY FIELDS:
+    Source Port | Dest Port | Sequence # | ACK # |
+    Flags | Window Size | Checksum
+
+  TCP FLAGS:
+    SYN=connect | ACK=acknowledge | FIN=close |
+    RST=reset | PSH=push | URG=urgent
+
+  UDP HEADER (only 4 fields!):
+    Source Port | Dest Port | Length | Checksum
+
+  IP PACKET HEADER KEY FIELDS:
+    Version | TTL | Protocol | Source IP | Dest IP
+
+  PROTOCOL NUMBERS:
+    1=ICMP | 6=TCP | 17=UDP | 89=OSPF
+
+  TTL BY OS:
+    Linux=64 | Windows=128 | Cisco=255
+
+  ETHERNET FRAME:
+    Preamble | SFD | Dest MAC | Src MAC |
+    EtherType | Payload | FCS
+
+  ETHERTYPE VALUES:
+    0x0800=IPv4 | 0x86DD=IPv6 | 0x0806=ARP
+
+  FIREWALL TYPES:
+    Layer 3/4 = Packet filter (IP + ports)
+    Layer 4 = Stateful (connection tracking)
+    Layer 7 = Application (HTTP content)
+    WAF = Web application specific
+
+  LINUX COMMANDS:
+    netstat -an         → all connections
+    ss -tulpn           → listening ports
+    iptables -L -n -v   → firewall rules
+    ufw status          → UFW firewall status
+    arp -a              → ARP table
+    ip neigh            → neighbor/ARP table
+    traceroute host     → path to destination
+    ping host           → ICMP connectivity test
+
+===============================================================
+   Day 25 Complete! On to Day 26 Tomorrow! 🔥
+   Resource Credit: Kunal Kushwaha — Networking Video
+   https://youtu.be/IPvYjXCsTg8
+   GitHub: #120DaysOfDevOps
+===============================================================
