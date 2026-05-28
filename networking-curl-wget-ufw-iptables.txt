@@ -1,0 +1,938 @@
+===============================================================
+   120 DAYS OF DEVOPS — NETWORKING TOOLS
+   Topic: curl, wget, UFW & iptables — Deep Dive
+===============================================================
+
+Author   : Dinesh
+Topic    : curl, wget, UFW Firewall, iptables Firewall
+Phase    : Phase 5 — Networking for DevOps
+Platform : Linux (Ubuntu / RHEL based)
+
+===============================================================
+TABLE OF CONTENTS
+===============================================================
+
+  1.  curl — Deep Dive
+  2.  wget — Deep Dive
+  3.  curl vs wget Comparison
+  4.  UFW — Uncomplicated Firewall
+  5.  iptables — Deep Dive
+  6.  UFW vs iptables Comparison
+  7.  Real World DevOps Scenarios
+  8.  Key Takeaways
+
+---------------------------------------------------------------
+1. curl — DEEP DIVE
+---------------------------------------------------------------
+
+  What is curl?
+  curl = Client URL
+  Command line tool for transferring data
+  using various network protocols.
+  Used to make HTTP requests, test APIs,
+  download files and debug network issues.
+
+  Protocols supported:
+  HTTP, HTTPS, FTP, SFTP, SCP, SMTP,
+  IMAP, POP3, LDAP, and many more!
+
+  BASIC USAGE:
+
+  COMMAND                           WHAT IT DOES
+  -------                           ------------
+  curl https://google.com           Fetch webpage content
+  curl -o file.html https://url     Save output to file
+  curl -O https://url/file.tar.gz   Save with original filename
+  curl -s https://url               Silent mode (no progress)
+  curl -v https://url               Verbose (show full details)
+  curl -I https://url               Fetch headers ONLY
+  curl -L https://url               Follow redirects
+  curl -k https://url               Skip SSL verification
+  curl --max-time 10 https://url    Set timeout to 10 seconds
+  curl -w "%{http_code}" https://url  Show only HTTP status code
+
+  HTTP METHODS:
+
+  COMMAND                                   WHAT IT DOES
+  -------                                   ------------
+  curl https://api.example.com              GET request (default)
+  curl -X GET https://api.example.com       Explicit GET request
+  curl -X POST https://api.example.com      POST request
+  curl -X PUT https://api.example.com       PUT request
+  curl -X PATCH https://api.example.com     PATCH request
+  curl -X DELETE https://api.example.com    DELETE request
+  curl -X HEAD https://api.example.com      HEAD request
+
+  SENDING DATA:
+
+  COMMAND                                           WHAT IT DOES
+  -------                                           ------------
+  curl -d "name=dinesh&age=25" https://api.com/user   Send form data
+  curl -d '{"name":"dinesh"}' https://api.com/user    Send raw data
+  curl --data-urlencode "name=dinesh khade" url       URL encode data
+  curl -F "file=@photo.jpg" https://api.com/upload    Upload file
+  curl -F "name=dinesh" -F "file=@doc.pdf" url        Upload with data
+
+  HTTP HEADERS:
+
+  COMMAND                                           WHAT IT DOES
+  -------                                           ------------
+  curl -H "Content-Type: application/json" url      Set content type
+  curl -H "Authorization: Bearer TOKEN" url         Set auth token
+  curl -H "Accept: application/json" url            Set accept type
+  curl -H "Custom-Header: value" url                Set custom header
+  curl -H "Content-Type: application/json" \
+       -H "Authorization: Bearer TOKEN" url         Multiple headers
+
+  AUTHENTICATION:
+
+  COMMAND                                   WHAT IT DOES
+  -------                                   ------------
+  curl -u username:password https://url     Basic auth
+  curl -u username https://url             Prompt for password
+  curl -H "Authorization: Bearer TOKEN" url Bearer token auth
+  curl --digest -u user:pass https://url   Digest authentication
+
+  COMPLETE API EXAMPLES:
+
+  GET with auth:
+  curl -X GET \
+    -H "Authorization: Bearer mytoken123" \
+    -H "Accept: application/json" \
+    https://api.example.com/users
+
+  POST JSON data:
+  curl -X POST \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Bearer mytoken123" \
+    -d '{"name":"Dinesh","role":"DevOps"}' \
+    https://api.example.com/users
+
+  PUT update:
+  curl -X PUT \
+    -H "Content-Type: application/json" \
+    -d '{"name":"Dinesh Khade"}' \
+    https://api.example.com/users/1
+
+  DELETE request:
+  curl -X DELETE \
+    -H "Authorization: Bearer mytoken123" \
+    https://api.example.com/users/1
+
+  SSL & CERTIFICATES:
+
+  COMMAND                                   WHAT IT DOES
+  -------                                   ------------
+  curl -k https://url                       Skip SSL verification
+  curl --cacert ca.pem https://url          Use custom CA cert
+  curl --cert client.pem https://url        Use client certificate
+  curl --key private.key https://url        Use private key
+  curl -v https://url 2>&1 | grep SSL       Show SSL details
+
+  DOWNLOAD FILES:
+
+  COMMAND                                   WHAT IT DOES
+  -------                                   ------------
+  curl -O https://url/file.tar.gz           Download with orig name
+  curl -o myfile.tar.gz https://url/f.gz    Download with custom name
+  curl -C - -O https://url/bigfile.tar.gz   Resume interrupted download
+  curl -L -O https://url/file              Follow redirects + download
+  curl --limit-rate 1M -O https://url/file  Limit download to 1MB/s
+  curl -z file.html https://url/file.html   Download only if newer
+
+  DEBUGGING & TROUBLESHOOTING:
+
+  COMMAND                                   WHAT IT DOES
+  -------                                   ------------
+  curl -v https://url                       Full verbose output
+  curl --trace output.txt https://url       Save trace to file
+  curl -w "\n%{http_code}" https://url      Show HTTP status code
+  curl -w "@format.txt" https://url         Custom output format
+  curl --resolve host:443:IP https://host   Override DNS for testing
+  curl -I https://url                       Show response headers only
+
+  USEFUL -w FORMAT VARIABLES:
+
+  VARIABLE              SHOWS
+  --------              -----
+  %{http_code}          HTTP status code
+  %{time_total}         Total request time
+  %{time_connect}       TCP connect time
+  %{time_starttransfer} Time to first byte
+  %{speed_download}     Download speed
+  %{size_download}      Downloaded bytes
+  %{url_effective}      Final URL after redirects
+
+  EXAMPLE - Full timing info:
+  curl -w "\nHTTP Code: %{http_code}\nTotal Time: %{time_total}s\n" \
+    -o /dev/null -s https://google.com
+
+  MULTIPLE REQUESTS:
+
+  COMMAND                                   WHAT IT DOES
+  -------                                   ------------
+  curl url1 url2 url3                       Multiple URLs at once
+  curl -K urls.txt                          Read URLs from file
+  xargs -n1 curl -s < urls.txt             Curl list from file
+
+  CONFIG FILE:
+  # Create ~/.curlrc for default options
+  echo '-H "User-Agent: DevOps-Script/1.0"' >> ~/.curlrc
+  echo '--connect-timeout 10' >> ~/.curlrc
+
+---------------------------------------------------------------
+2. wget — DEEP DIVE
+---------------------------------------------------------------
+
+  What is wget?
+  wget = WWW Get
+  Non-interactive network downloader.
+  Specialized for downloading files.
+  Supports HTTP, HTTPS, FTP.
+  Can work in background and resume downloads!
+
+  BASIC USAGE:
+
+  COMMAND                           WHAT IT DOES
+  -------                           ------------
+  wget https://url/file.tar.gz      Download file
+  wget -O myfile.tar.gz https://url Download with custom name
+  wget -q https://url               Quiet mode (no output)
+  wget -v https://url               Verbose mode
+  wget --no-check-certificate url   Skip SSL verification
+  wget -b https://url               Download in background!
+  wget -i urls.txt                  Download URLs from file
+
+  RESUMING DOWNLOADS:
+
+  COMMAND                           WHAT IT DOES
+  -------                           ------------
+  wget -c https://url/bigfile.iso   Continue/resume download!
+  wget -c -b https://url/file       Resume in background
+
+  This is wget's superpower vs curl!
+  Perfect for large file downloads!
+
+  DOWNLOADING WEBSITES:
+
+  COMMAND                                   WHAT IT DOES
+  -------                                   ------------
+  wget -r https://website.com               Download recursively
+  wget -r -l 2 https://website.com          Recursive depth 2 levels
+  wget -r -np https://website.com           No parent directory
+  wget -m https://website.com               Mirror website!
+  wget -r -A "*.pdf" https://site.com       Download only PDFs
+  wget -r -R "*.jpg" https://site.com       Exclude JPG files
+  wget --mirror -p --convert-links url      Full offline copy
+
+  RATE LIMITING:
+
+  COMMAND                                   WHAT IT DOES
+  -------                                   ------------
+  wget --limit-rate=1m https://url/file     Limit to 1MB/s
+  wget --limit-rate=500k https://url/file   Limit to 500KB/s
+  wget --wait=2 -r https://website.com      Wait 2 sec between requests
+  wget --random-wait -r https://website.com Random wait (polite crawl)
+
+  AUTHENTICATION:
+
+  COMMAND                                   WHAT IT DOES
+  -------                                   ------------
+  wget --user=username --password=pass url  Basic authentication
+  wget --http-user=user --http-password=pw url  HTTP auth
+  wget --ftp-user=user --ftp-password=pw url    FTP auth
+
+  FTP DOWNLOADS:
+
+  COMMAND                               WHAT IT DOES
+  -------                               ------------
+  wget ftp://ftp.server.com/file        Download from FTP
+  wget -r ftp://ftp.server.com/dir/     Download FTP directory
+  wget --ftp-user=user --ftp-password=pw \
+    ftp://server.com/file               FTP with auth
+
+  PROXY SETTINGS:
+
+  COMMAND                                   WHAT IT DOES
+  -------                                   ------------
+  wget -e use_proxy=yes \
+    -e http_proxy=proxy:port https://url    Use HTTP proxy
+  wget --no-proxy https://url               Bypass proxy
+
+  WGET CONFIG FILE:
+  # Create ~/.wgetrc for defaults
+  echo 'continue = on' >> ~/.wgetrc
+  echo 'limit-rate = 1m' >> ~/.wgetrc
+  echo 'no-check-certificate = on' >> ~/.wgetrc
+
+  LOGGING:
+
+  COMMAND                               WHAT IT DOES
+  -------                               ------------
+  wget -o download.log https://url      Save log to file
+  wget -a download.log https://url      Append to log file
+  wget -d https://url                   Debug output
+
+---------------------------------------------------------------
+3. curl vs wget COMPARISON
+---------------------------------------------------------------
+
+  FEATURE               curl                    wget
+  -------               ----                    ----
+  Primary use           API calls, data transfer File downloading
+  Resume download       YES (-C -)              YES (-c) — BETTER!
+  Background download   NO                      YES (-b)
+  Recursive download    NO                      YES (-r)
+  Mirror website        NO                      YES (--mirror)
+  Protocols             20+ protocols           HTTP, HTTPS, FTP
+  Send data             YES (forms, JSON, etc)  LIMITED
+  HTTP methods          All (GET,POST,PUT etc)  Mainly GET
+  Custom headers        YES                     YES (limited)
+  Output format         Flexible (-w)           Basic
+  API testing           EXCELLENT               Not ideal
+  Config file           ~/.curlrc               ~/.wgetrc
+  Library available     libcurl                 No
+  Installation          Usually pre-installed   May need installing
+
+  WHEN TO USE curl:
+  → Testing REST APIs
+  → Sending POST/PUT/DELETE requests
+  → Custom headers and authentication
+  → Debugging HTTP issues
+  → Scripting API interactions
+  → Checking HTTP response codes
+  → CI/CD pipeline health checks
+
+  WHEN TO USE wget:
+  → Downloading large files
+  → Resuming interrupted downloads
+  → Downloading entire websites
+  → Background downloads
+  → FTP downloads
+  → Simple file fetching in scripts
+  → Mirroring content
+
+---------------------------------------------------------------
+4. UFW — UNCOMPLICATED FIREWALL
+---------------------------------------------------------------
+
+  What is UFW?
+  UFW = Uncomplicated Firewall
+  User-friendly frontend for iptables.
+  Default firewall tool on Ubuntu/Debian.
+  Makes firewall management simple and readable!
+
+  INSTALLATION:
+  apt install ufw               → install UFW
+  systemctl enable ufw          → enable on boot
+  systemctl start ufw           → start UFW service
+
+  BASIC STATUS & CONTROL:
+
+  COMMAND                       WHAT IT DOES
+  -------                       ------------
+  ufw status                    Check if enabled + rules
+  ufw status verbose            Detailed status with policies
+  ufw status numbered           Show rules with numbers
+  ufw enable                    Enable firewall (ACTIVATE!)
+  ufw disable                   Disable firewall
+  ufw reset                     Reset ALL rules to default!
+  ufw reload                    Reload firewall rules
+
+  WARNING: Always allow SSH before enabling UFW!
+  If you enable without allowing SSH → locked out!
+
+  SAFE UFW ENABLE SEQUENCE:
+  ufw allow 22/tcp    → allow SSH FIRST!
+  ufw enable          → NOW safe to enable
+
+  DEFAULT POLICIES:
+
+  COMMAND                       WHAT IT DOES
+  -------                       ------------
+  ufw default deny incoming     Block all incoming (recommended!)
+  ufw default allow outgoing    Allow all outgoing (default)
+  ufw default deny outgoing     Block all outgoing (strict)
+  ufw default allow incoming    Allow all incoming (not recommended)
+
+  Best practice:
+  ufw default deny incoming
+  ufw default allow outgoing
+  Then add specific allow rules!
+
+  ALLOWING TRAFFIC:
+
+  COMMAND                           WHAT IT DOES
+  -------                           ------------
+  ufw allow 22                      Allow SSH (port 22 TCP+UDP)
+  ufw allow 22/tcp                  Allow SSH TCP only
+  ufw allow 80/tcp                  Allow HTTP
+  ufw allow 443/tcp                 Allow HTTPS
+  ufw allow 3306/tcp                Allow MySQL
+  ufw allow 5432/tcp                Allow PostgreSQL
+  ufw allow 8080/tcp                Allow alternate HTTP
+  ufw allow ssh                     Allow by service name
+  ufw allow http                    Allow by service name
+  ufw allow https                   Allow by service name
+  ufw allow ftp                     Allow FTP
+
+  ALLOW BY IP ADDRESS:
+
+  COMMAND                                   WHAT IT DOES
+  -------                                   ------------
+  ufw allow from 192.168.1.10              Allow all from IP
+  ufw allow from 192.168.1.0/24            Allow from subnet
+  ufw allow from 10.0.0.0/8               Allow from network
+  ufw allow from 192.168.1.10 to any port 22   Specific IP to SSH
+  ufw allow from 192.168.1.0/24 to any port 3306  Subnet to MySQL
+
+  DENYING TRAFFIC:
+
+  COMMAND                           WHAT IT DOES
+  -------                           ------------
+  ufw deny 23                       Block Telnet
+  ufw deny 23/tcp                   Block Telnet TCP
+  ufw deny from 1.2.3.4            Block specific IP
+  ufw deny from 1.2.3.0/24         Block entire subnet
+  ufw reject 23/tcp                 Reject with response
+
+  deny vs reject:
+  deny  → drops packet silently (attacker gets no response)
+  reject → sends error back (let sender know it's blocked)
+  Use deny in production — gives less info to attackers!
+
+  PORT RANGES:
+
+  COMMAND                           WHAT IT DOES
+  -------                           ------------
+  ufw allow 3000:4000/tcp          Allow port range
+  ufw deny 6000:6100/udp           Block UDP port range
+  ufw allow 30000:32767/tcp        Kubernetes NodePort range
+
+  MANAGING RULES:
+
+  COMMAND                           WHAT IT DOES
+  -------                           ------------
+  ufw status numbered               Show rules with numbers
+  ufw delete 3                      Delete rule number 3
+  ufw delete allow 80/tcp           Delete specific rule
+  ufw delete deny from 1.2.3.4     Delete deny rule
+  ufw insert 1 allow 22/tcp         Insert rule at position 1
+
+  LOGGING:
+
+  COMMAND                           WHAT IT DOES
+  -------                           ------------
+  ufw logging on                    Enable logging
+  ufw logging off                   Disable logging
+  ufw logging low                   Log blocked packets only
+  ufw logging medium                Log more details
+  ufw logging high                  Log everything
+  cat /var/log/ufw.log              View UFW logs
+  tail -f /var/log/ufw.log          Follow live UFW logs
+
+  APPLICATION PROFILES:
+
+  COMMAND                           WHAT IT DOES
+  -------                           ------------
+  ufw app list                      List available app profiles
+  ufw app info Nginx                Show Nginx profile details
+  ufw allow 'Nginx Full'            Allow Nginx HTTP + HTTPS
+  ufw allow 'Nginx HTTP'            Allow Nginx HTTP only
+  ufw allow 'Nginx HTTPS'           Allow Nginx HTTPS only
+  ufw allow 'OpenSSH'               Allow SSH via profile
+
+  COMPLETE SERVER SETUP EXAMPLE:
+
+  # Reset and start fresh
+  ufw reset
+
+  # Set default policies
+  ufw default deny incoming
+  ufw default allow outgoing
+
+  # Allow essential services
+  ufw allow 22/tcp          # SSH
+  ufw allow 80/tcp          # HTTP
+  ufw allow 443/tcp         # HTTPS
+
+  # Allow database from app subnet only
+  ufw allow from 10.0.1.0/24 to any port 3306
+
+  # Block known bad IP
+  ufw deny from 1.2.3.4
+
+  # Enable firewall
+  ufw enable
+
+  # Verify
+  ufw status verbose
+
+---------------------------------------------------------------
+5. iptables — DEEP DIVE
+---------------------------------------------------------------
+
+  What is iptables?
+  The traditional Linux firewall tool.
+  Works directly with the Linux kernel's
+  netfilter framework.
+  More powerful than UFW but more complex.
+  UFW is actually a frontend for iptables!
+
+  iptables STRUCTURE:
+
+  TABLES → CHAINS → RULES
+
+  TABLES:
+  filter  → Default table (most used!)
+            Controls which packets are allowed
+  nat     → Network Address Translation
+            Used for port forwarding and masquerading
+  mangle  → Packet modification
+            Used for QoS and traffic shaping
+  raw     → Connection tracking exceptions
+
+  CHAINS IN filter TABLE:
+
+  CHAIN       WHEN IT APPLIES
+  -----       ---------------
+  INPUT       Packets coming TO this machine
+  OUTPUT      Packets going FROM this machine
+  FORWARD     Packets passing THROUGH this machine
+
+  CHAINS IN nat TABLE:
+
+  CHAIN           WHEN IT APPLIES
+  -----           ---------------
+  PREROUTING      Before routing decision
+  POSTROUTING     After routing decision
+  OUTPUT          Locally generated packets
+
+  PACKET FLOW:
+
+  Incoming packet:
+  NETWORK → PREROUTING → INPUT → Application
+
+  Forwarded packet:
+  NETWORK → PREROUTING → FORWARD → POSTROUTING → NETWORK
+
+  Outgoing packet:
+  Application → OUTPUT → POSTROUTING → NETWORK
+
+  BASIC COMMANDS:
+
+  COMMAND                           WHAT IT DOES
+  -------                           ------------
+  iptables -L                       List all rules
+  iptables -L -n                    List without DNS resolution
+  iptables -L -n -v                 List with packet/byte counts
+  iptables -L -n -v --line-numbers  List with line numbers
+  iptables -L INPUT -n -v           List INPUT chain only
+  iptables -F                       FLUSH all rules (dangerous!)
+  iptables -F INPUT                 Flush INPUT chain only
+  iptables -Z                       Zero all packet/byte counters
+
+  ADDING RULES:
+
+  COMMAND STRUCTURE:
+  iptables -A CHAIN -p PROTOCOL --dport PORT -j ACTION
+
+  FLAGS:
+  -A  → Append rule to end of chain
+  -I  → Insert rule at position (default: top)
+  -D  → Delete specific rule
+  -R  → Replace rule at position
+  -p  → Protocol (tcp, udp, icmp, all)
+  -s  → Source IP address
+  -d  → Destination IP address
+  -i  → Input network interface
+  -o  → Output network interface
+  --sport → Source port
+  --dport → Destination port
+  -j  → Jump to target (ACCEPT, DROP, REJECT, LOG)
+
+  ACTIONS/TARGETS:
+  ACCEPT → Allow the packet through
+  DROP   → Silently discard packet (no response)
+  REJECT → Discard and send error response
+  LOG    → Log packet details then continue
+  RETURN → Return to calling chain
+
+  ALLOW RULES:
+
+  COMMAND                                       WHAT IT DOES
+  -------                                       ------------
+  iptables -A INPUT -p tcp --dport 22 -j ACCEPT Allow SSH
+  iptables -A INPUT -p tcp --dport 80 -j ACCEPT Allow HTTP
+  iptables -A INPUT -p tcp --dport 443 -j ACCEPT Allow HTTPS
+  iptables -A INPUT -p tcp --dport 3306 -j ACCEPT Allow MySQL
+  iptables -A INPUT -p icmp -j ACCEPT           Allow ping
+  iptables -A INPUT -i lo -j ACCEPT             Allow loopback
+
+  ALLOW BY SOURCE IP:
+
+  COMMAND                                               WHAT IT DOES
+  -------                                               ------------
+  iptables -A INPUT -s 192.168.1.10 -j ACCEPT          Allow specific IP
+  iptables -A INPUT -s 192.168.1.0/24 -j ACCEPT        Allow subnet
+  iptables -A INPUT -s 192.168.1.10 -p tcp \
+    --dport 22 -j ACCEPT                               Specific IP to SSH
+  iptables -A INPUT -s 10.0.0.0/8 -p tcp \
+    --dport 3306 -j ACCEPT                             Network to MySQL
+
+  DENY RULES:
+
+  COMMAND                                           WHAT IT DOES
+  -------                                           ------------
+  iptables -A INPUT -s 1.2.3.4 -j DROP              Block specific IP
+  iptables -A INPUT -s 1.2.3.0/24 -j DROP           Block subnet
+  iptables -A INPUT -p tcp --dport 23 -j DROP        Block Telnet
+  iptables -A INPUT -p tcp --dport 23 -j REJECT      Reject Telnet
+
+  CONNECTION STATE TRACKING:
+
+  COMMAND                                               WHAT IT DOES
+  -------                                               ------------
+  iptables -A INPUT -m state \
+    --state ESTABLISHED,RELATED -j ACCEPT              Allow established
+  iptables -A INPUT -m state \
+    --state NEW -p tcp --dport 22 -j ACCEPT            Allow new SSH
+  iptables -A INPUT -m state \
+    --state INVALID -j DROP                            Drop invalid
+
+  STATE VALUES:
+  NEW         → First packet of new connection
+  ESTABLISHED → Part of existing connection
+  RELATED     → Related to existing (FTP data, ICMP)
+  INVALID     → Cannot be identified → always DROP!
+
+  DEFAULT POLICIES:
+
+  COMMAND                           WHAT IT DOES
+  -------                           ------------
+  iptables -P INPUT DROP            Default deny all incoming
+  iptables -P OUTPUT ACCEPT         Default allow all outgoing
+  iptables -P FORWARD DROP          Default deny all forwarding
+
+  LOGGING:
+
+  COMMAND                                           WHAT IT DOES
+  -------                                           ------------
+  iptables -A INPUT -j LOG \
+    --log-prefix "IPTables-Input: "               Log all INPUT
+  iptables -A INPUT -s 1.2.3.4 -j LOG \
+    --log-prefix "Blocked-IP: " --log-level 4     Log blocked IP
+  tail -f /var/log/kern.log                        View iptables logs
+  grep "IPTables" /var/log/kern.log                Search iptables logs
+
+  NAT — PORT FORWARDING:
+
+  # Enable IP forwarding first
+  echo 1 > /proc/sys/net/ipv4/ip_forward
+
+  # Forward port 8080 to 80
+  iptables -t nat -A PREROUTING \
+    -p tcp --dport 8080 -j REDIRECT --to-port 80
+
+  # Forward to another server
+  iptables -t nat -A PREROUTING \
+    -p tcp --dport 80 -j DNAT --to-destination 192.168.1.10:80
+
+  # Masquerade (NAT for outbound)
+  iptables -t nat -A POSTROUTING \
+    -o eth0 -j MASQUERADE
+
+  SAVING & RESTORING RULES:
+
+  COMMAND                           WHAT IT DOES
+  -------                           ------------
+  iptables-save                     Show all rules in save format
+  iptables-save > /etc/iptables/rules.v4   Save to file
+  iptables-restore < /etc/iptables/rules.v4  Restore from file
+
+  UBUNTU — Persist rules across reboots:
+  apt install iptables-persistent
+  netfilter-persistent save
+  netfilter-persistent reload
+
+  COMPLETE SERVER FIREWALL EXAMPLE:
+
+  #!/bin/bash
+  # Flush existing rules
+  iptables -F
+  iptables -X
+
+  # Default policies — deny everything
+  iptables -P INPUT DROP
+  iptables -P FORWARD DROP
+  iptables -P OUTPUT ACCEPT
+
+  # Allow loopback
+  iptables -A INPUT -i lo -j ACCEPT
+
+  # Allow established connections
+  iptables -A INPUT -m state \
+    --state ESTABLISHED,RELATED -j ACCEPT
+
+  # Drop invalid packets
+  iptables -A INPUT -m state \
+    --state INVALID -j DROP
+
+  # Allow SSH from specific IP only
+  iptables -A INPUT -s 203.0.113.5 \
+    -p tcp --dport 22 -j ACCEPT
+
+  # Allow HTTP and HTTPS
+  iptables -A INPUT -p tcp --dport 80 -j ACCEPT
+  iptables -A INPUT -p tcp --dport 443 -j ACCEPT
+
+  # Allow ping
+  iptables -A INPUT -p icmp \
+    --icmp-type echo-request -j ACCEPT
+
+  # Log dropped packets
+  iptables -A INPUT -j LOG \
+    --log-prefix "DROPPED: " --log-level 4
+
+  # Save rules
+  iptables-save > /etc/iptables/rules.v4
+
+  echo "Firewall configured!"
+
+---------------------------------------------------------------
+6. UFW vs iptables COMPARISON
+---------------------------------------------------------------
+
+  FEATURE           UFW                     iptables
+  -------           ---                     --------
+  Complexity        Simple                  Complex
+  Learning curve    Low                     High
+  Readability       Human readable          Technical syntax
+  Power             Basic-Medium            Very powerful
+  NAT support       Limited                 Full NAT support
+  Port forwarding   Limited                 Full support
+  State tracking    Automatic               Manual (-m state)
+  Rule ordering     Automatic               Manual
+  Logging           Simple                  Detailed
+  Default on        Ubuntu/Debian           Most Linux distros
+  Good for          Servers, beginners      Advanced networking
+  Backend           Uses iptables!          Kernel netfilter
+  Persistence       Automatic               Needs extra setup
+
+  WHEN TO USE UFW:
+  → Ubuntu/Debian servers
+  → Simple allow/deny rules needed
+  → Beginners learning firewalls
+  → Quick server hardening
+  → Development environments
+
+  WHEN TO USE iptables:
+  → Complex networking rules
+  → NAT and port forwarding
+  → Advanced packet manipulation
+  → RHEL/CentOS environments
+  → Container networking (Docker uses iptables!)
+  → When you need full control
+
+---------------------------------------------------------------
+7. REAL WORLD DEVOPS SCENARIOS
+---------------------------------------------------------------
+
+  SCENARIO 1 — Health Check Script with curl:
+
+  #!/bin/bash
+  URLS=("https://myapp.com/health"
+        "https://api.myapp.com/ping"
+        "https://admin.myapp.com/status")
+
+  for url in "${URLS[@]}"; do
+    STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+      --max-time 10 "$url")
+    if [ "$STATUS" == "200" ]; then
+      echo "✓ $url is UP (HTTP $STATUS)"
+    else
+      echo "✗ $url is DOWN (HTTP $STATUS)"
+    fi
+  done
+
+  SCENARIO 2 — Download with retry using wget:
+
+  #!/bin/bash
+  wget \
+    --tries=5 \
+    --wait=2 \
+    --retry-connrefused \
+    --continue \
+    --output-document=/opt/app/release.tar.gz \
+    https://releases.example.com/v1.2.3/app.tar.gz
+
+  SCENARIO 3 — API Token from vault using curl:
+
+  # Get secret from HashiCorp Vault
+  TOKEN=$(curl -s \
+    -H "X-Vault-Token: $VAULT_TOKEN" \
+    https://vault.company.com/v1/secret/db-password \
+    | jq -r '.data.password')
+
+  echo "Database password retrieved!"
+
+  SCENARIO 4 — Secure UFW Setup for Web Server:
+
+  # Reset
+  ufw --force reset
+
+  # Defaults
+  ufw default deny incoming
+  ufw default allow outgoing
+
+  # SSH from office IP only
+  ufw allow from 203.0.113.0/24 to any port 22
+
+  # Web traffic
+  ufw allow 80/tcp
+  ufw allow 443/tcp
+
+  # Monitoring from internal network
+  ufw allow from 10.0.0.0/8 to any port 9090
+
+  # Enable
+  ufw enable
+  ufw status verbose
+
+  SCENARIO 5 — Block IPs from fail2ban log using iptables:
+
+  #!/bin/bash
+  # Block IPs that failed SSH login > 5 times
+  grep "Failed password" /var/log/auth.log | \
+    awk '{print $11}' | \
+    sort | uniq -c | sort -rn | \
+    awk '$1>5 {print $2}' | \
+    while read ip; do
+      iptables -A INPUT -s $ip -j DROP
+      echo "Blocked: $ip"
+    done
+
+  SCENARIO 6 — Test API Response Time with curl:
+
+  curl -s -o /dev/null \
+    -w "DNS: %{time_namelookup}s\n\
+  Connect: %{time_connect}s\n\
+  SSL: %{time_appconnect}s\n\
+  TTFB: %{time_starttransfer}s\n\
+  Total: %{time_total}s\n" \
+    https://myapp.com/api/endpoint
+
+  SCENARIO 7 — Download multiple files with wget:
+
+  # Create URLs file
+  cat > downloads.txt << EOF
+  https://example.com/file1.tar.gz
+  https://example.com/file2.tar.gz
+  https://example.com/file3.tar.gz
+  EOF
+
+  # Download all
+  wget -i downloads.txt \
+    --continue \
+    --limit-rate=5m \
+    -P /opt/downloads/
+
+---------------------------------------------------------------
+8. KEY TAKEAWAYS
+---------------------------------------------------------------
+
+  [01] curl is best for API calls, testing endpoints
+       and complex HTTP requests with custom headers.
+       wget is best for downloading files and websites.
+
+  [02] curl -I URL shows only response headers.
+       Great for quickly checking server status,
+       redirects and SSL certificate details!
+
+  [03] curl -w "%{http_code}" is essential for
+       health check scripts in DevOps pipelines.
+       Returns just the HTTP status code — clean output!
+
+  [04] wget -c resumes interrupted downloads.
+       Perfect for large files over unstable connections.
+       curl -C - does the same but wget does it better!
+
+  [05] ALWAYS allow SSH before enabling UFW!
+       ufw allow 22 THEN ufw enable
+       Reverse order = locked out of your server!
+
+  [06] UFW default deny incoming is best practice.
+       Then explicitly allow only what you need.
+       Principle of least privilege for networks!
+
+  [07] iptables rule ORDER matters!
+       Rules evaluated top to bottom.
+       First matching rule wins.
+       Put most specific rules BEFORE general ones!
+
+  [08] iptables -m state --state ESTABLISHED,RELATED
+       is essential for stateful firewall behavior.
+       Without it return traffic gets blocked too!
+
+  [09] iptables rules are NOT persistent by default!
+       Install iptables-persistent on Ubuntu.
+       Or save with iptables-save and restore on boot!
+
+  [10] UFW is actually using iptables underneath!
+       UFW generates iptables rules automatically.
+       Don't mix UFW and raw iptables on same server!
+
+  [11] curl -v shows full request AND response headers.
+       Best tool for debugging HTTPS and API issues.
+       Shows SSL handshake details too!
+
+  [12] Docker and Kubernetes modify iptables directly!
+       Be careful when adding iptables rules on
+       container hosts — may conflict with Docker rules!
+
+===============================================================
+QUICK REFERENCE CHEAT SHEET
+===============================================================
+
+  curl:
+    curl -I url              → headers only
+    curl -v url              → verbose debug
+    curl -o file url         → save to file
+    curl -X POST -d '{}' url → POST JSON
+    curl -H "Auth: token" url → with header
+    curl -L url              → follow redirects
+    curl -k url              → skip SSL check
+    curl -w "%{http_code}" url → show status code
+
+  wget:
+    wget url                 → download file
+    wget -c url              → resume download
+    wget -b url              → background download
+    wget -r url              → recursive download
+    wget -i urls.txt         → from file
+    wget -q url              → quiet mode
+    wget --limit-rate=1m url → rate limit
+
+  UFW:
+    ufw status               → check status
+    ufw enable/disable       → toggle firewall
+    ufw allow 22/tcp         → allow SSH
+    ufw deny from 1.2.3.4    → block IP
+    ufw status numbered      → show with numbers
+    ufw delete 3             → delete rule 3
+    ufw reset                → reset all rules
+
+  iptables:
+    iptables -L -n -v                    → list rules
+    iptables -A INPUT -p tcp \
+      --dport 22 -j ACCEPT              → allow SSH
+    iptables -A INPUT -s IP -j DROP     → block IP
+    iptables -P INPUT DROP              → default deny
+    iptables -F                         → flush rules
+    iptables-save > rules.v4            → save rules
+    iptables-restore < rules.v4         → restore rules
+
+===============================================================
+   Networking Tools Complete! 🔥
+   GitHub: #120DaysOfDevOps
+===============================================================
