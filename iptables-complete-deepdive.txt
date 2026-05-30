@@ -1,0 +1,1201 @@
+===============================================================
+   120 DAYS OF DEVOPS — NETWORKING
+   Topic: iptables — Complete Deep Dive
+===============================================================
+
+Author   : Dinesh
+Topic    : iptables — Linux Firewall Deep Dive
+           Tables, Chains, Rules, NAT, Logging,
+           Real World DevOps Scenarios
+Phase    : Phase 5 — Networking for DevOps
+Platform : Linux (Ubuntu / RHEL based)
+
+===============================================================
+TABLE OF CONTENTS
+===============================================================
+
+  1.  What is iptables?
+  2.  How iptables Works — Architecture
+  3.  Tables Deep Dive
+  4.  Chains Deep Dive
+  5.  Packet Flow Through iptables
+  6.  Rules & Targets
+  7.  Basic iptables Commands
+  8.  Filtering by Protocol & Port
+  9.  Filtering by IP Address
+  10. Connection State Tracking
+  11. NAT — Network Address Translation
+  12. Port Forwarding
+  13. Logging
+  14. Saving & Persisting Rules
+  15. iptables vs nftables
+  16. Real World DevOps Scenarios
+  17. Complete Firewall Script
+  18. Key Takeaways
+
+---------------------------------------------------------------
+1. WHAT IS iptables?
+---------------------------------------------------------------
+
+  iptables is the traditional Linux firewall tool.
+  It controls network traffic flowing through
+  your Linux system using rules.
+
+  iptables works by interacting with the Linux
+  kernel's netfilter framework — a set of hooks
+  inside the kernel that allows packet filtering,
+  NAT and packet mangling.
+
+  KEY FACTS:
+  → Available on virtually ALL Linux distributions
+  → Works at kernel level — very fast!
+  → UFW is just a frontend for iptables
+  → Docker, Kubernetes use iptables internally
+  → Still the industry standard for Linux firewalls
+  → Being gradually replaced by nftables
+
+  INSTALL:
+  apt install iptables          → Ubuntu/Debian
+  yum install iptables          → RHEL/CentOS
+
+  CHECK VERSION:
+  iptables --version
+
+  CHECK CURRENT RULES:
+  iptables -L -n -v             → list all rules verbose
+  iptables -L -n -v -t nat      → list NAT table rules
+
+---------------------------------------------------------------
+2. HOW iptables WORKS — ARCHITECTURE
+---------------------------------------------------------------
+
+  iptables HIERARCHY:
+
+  ┌─────────────────────────────────────────────┐
+  │                  iptables                   │
+  ├─────────────────────────────────────────────┤
+  │  TABLES (4 main tables)                     │
+  │  filter | nat | mangle | raw                │
+  ├─────────────────────────────────────────────┤
+  │  CHAINS (within each table)                 │
+  │  INPUT | OUTPUT | FORWARD                   │
+  │  PREROUTING | POSTROUTING                   │
+  ├─────────────────────────────────────────────┤
+  │  RULES (within each chain)                  │
+  │  match criteria → target/action             │
+  └─────────────────────────────────────────────┘
+
+  HOW PACKET IS PROCESSED:
+
+  1. Packet arrives at network interface
+  2. Matches against rules in order (top to bottom)
+  3. First matching rule → execute its TARGET
+  4. If no rule matches → use chain DEFAULT POLICY
+  5. Target determines: ACCEPT, DROP, REJECT, LOG
+
+  RULE MATCHING ORDER:
+  Rule 1 → match? → execute target → STOP
+  Rule 2 → match? → execute target → STOP
+  Rule 3 → match? → execute target → STOP
+  ...
+  No match → DEFAULT POLICY applied
+
+  CRITICAL: Order of rules matters enormously!
+  First matching rule wins — rest are ignored!
+
+---------------------------------------------------------------
+3. TABLES DEEP DIVE
+---------------------------------------------------------------
+
+  iptables has FOUR main tables.
+  Each table has a specific purpose.
+
+  ┌────────────────────────────────────────────────────────┐
+  │ TABLE 1 — filter (DEFAULT TABLE)                       │
+  ├────────────────────────────────────────────────────────┤
+  │ Most commonly used table.                              │
+  │ Controls which packets are ALLOWED or BLOCKED.         │
+  │ Used for: firewall rules, access control               │
+  │                                                        │
+  │ Chains: INPUT, OUTPUT, FORWARD                         │
+  └────────────────────────────────────────────────────────┘
+
+  ┌────────────────────────────────────────────────────────┐
+  │ TABLE 2 — nat (Network Address Translation)            │
+  ├────────────────────────────────────────────────────────┤
+  │ Handles NAT operations.                                │
+  │ Used for: port forwarding, masquerading,               │
+  │           changing source/destination IPs              │
+  │                                                        │
+  │ Chains: PREROUTING, OUTPUT, POSTROUTING                │
+  └────────────────────────────────────────────────────────┘
+
+  ┌────────────────────────────────────────────────────────┐
+  │ TABLE 3 — mangle                                       │
+  ├────────────────────────────────────────────────────────┤
+  │ Packet modification/alteration.                        │
+  │ Used for: QoS, TTL modification,                       │
+  │           marking packets for routing                  │
+  │                                                        │
+  │ Chains: ALL 5 chains                                   │
+  └────────────────────────────────────────────────────────┘
+
+  ┌────────────────────────────────────────────────────────┐
+  │ TABLE 4 — raw                                          │
+  ├────────────────────────────────────────────────────────┤
+  │ Connection tracking exceptions.                        │
+  │ Used for: bypassing connection tracking,               │
+  │           high performance networking                  │
+  │                                                        │
+  │ Chains: PREROUTING, OUTPUT                             │
+  └────────────────────────────────────────────────────────┘
+
+  SPECIFYING TABLES IN COMMANDS:
+
+  iptables -L                   → filter table (default)
+  iptables -t filter -L         → filter table (explicit)
+  iptables -t nat -L            → nat table
+  iptables -t mangle -L         → mangle table
+  iptables -t raw -L            → raw table
+
+---------------------------------------------------------------
+4. CHAINS DEEP DIVE
+---------------------------------------------------------------
+
+  A chain is a list of rules checked in order.
+  Different chains handle different traffic directions.
+
+  BUILT-IN CHAINS:
+
+  ┌──────────────────────────────────────────────────────┐
+  │ INPUT                                                │
+  │ → Packets DESTINED for this machine                  │
+  │ → Traffic coming TO your server                      │
+  │ Example: Someone SSHing into your server             │
+  │ Tables: filter, mangle                               │
+  └──────────────────────────────────────────────────────┘
+
+  ┌──────────────────────────────────────────────────────┐
+  │ OUTPUT                                               │
+  │ → Packets ORIGINATING from this machine              │
+  │ → Traffic going FROM your server                     │
+  │ Example: Your server making API call                 │
+  │ Tables: filter, nat, mangle, raw                     │
+  └──────────────────────────────────────────────────────┘
+
+  ┌──────────────────────────────────────────────────────┐
+  │ FORWARD                                              │
+  │ → Packets passing THROUGH this machine               │
+  │ → Machine acting as router                           │
+  │ Example: Router forwarding traffic between networks  │
+  │ Tables: filter, mangle                               │
+  └──────────────────────────────────────────────────────┘
+
+  ┌──────────────────────────────────────────────────────┐
+  │ PREROUTING                                           │
+  │ → Packets as soon as they arrive                     │
+  │ → BEFORE routing decision                            │
+  │ Example: DNAT — change destination before routing    │
+  │ Tables: nat, mangle, raw                             │
+  └──────────────────────────────────────────────────────┘
+
+  ┌──────────────────────────────────────────────────────┐
+  │ POSTROUTING                                          │
+  │ → Packets just before they leave                     │
+  │ → AFTER routing decision                             │
+  │ Example: SNAT/MASQUERADE — change source IP          │
+  │ Tables: nat, mangle                                  │
+  └──────────────────────────────────────────────────────┘
+
+  CUSTOM CHAINS:
+  You can create your own chains for organization!
+
+  iptables -N MY-CHAIN           → create new chain
+  iptables -A INPUT -j MY-CHAIN  → jump to custom chain
+  iptables -E MY-CHAIN NEW-NAME  → rename chain
+  iptables -X MY-CHAIN           → delete empty chain
+
+---------------------------------------------------------------
+5. PACKET FLOW THROUGH iptables
+---------------------------------------------------------------
+
+  COMPLETE PACKET FLOW:
+
+  ┌─────────────────────────────────────────────────────────┐
+  │                   PACKET ARRIVES                        │
+  │                        ↓                               │
+  │             [raw PREROUTING]                            │
+  │                        ↓                               │
+  │           [mangle PREROUTING]                           │
+  │                        ↓                               │
+  │             [nat PREROUTING]  ← DNAT happens here      │
+  │                        ↓                               │
+  │              ROUTING DECISION                           │
+  │               ↓              ↓                         │
+  │          For THIS machine   Forward to another          │
+  │               ↓                    ↓                   │
+  │       [mangle INPUT]        [mangle FORWARD]            │
+  │               ↓                    ↓                   │
+  │       [filter INPUT]        [filter FORWARD]            │
+  │               ↓                    ↓                   │
+  │          LOCAL PROCESS      [mangle POSTROUTING]        │
+  │               ↓                    ↓                   │
+  │       [raw OUTPUT]          [nat POSTROUTING] ←SNAT    │
+  │               ↓                    ↓                   │
+  │       [mangle OUTPUT]         PACKET LEAVES             │
+  │               ↓                                        │
+  │       [nat OUTPUT]                                      │
+  │               ↓                                        │
+  │       [filter OUTPUT]                                   │
+  │               ↓                                        │
+  │     [mangle POSTROUTING]                                │
+  │               ↓                                        │
+  │      [nat POSTROUTING]  ← SNAT/MASQUERADE here         │
+  │               ↓                                        │
+  │           PACKET LEAVES                                 │
+  └─────────────────────────────────────────────────────────┘
+
+  SIMPLIFIED VIEW FOR COMMON CASES:
+
+  Incoming web request to your server:
+  PREROUTING → INPUT → Application
+
+  Your server making outbound request:
+  Application → OUTPUT → POSTROUTING
+
+  Router forwarding between networks:
+  PREROUTING → FORWARD → POSTROUTING
+
+---------------------------------------------------------------
+6. RULES & TARGETS
+---------------------------------------------------------------
+
+  RULE STRUCTURE:
+
+  iptables [TABLE] [CHAIN] [MATCH_CRITERIA] [TARGET]
+
+  iptables -t filter -A INPUT -p tcp --dport 22 -j ACCEPT
+           │         │         │                 │
+           table     chain     match criteria    target
+
+  COMMON FLAGS:
+
+  FLAG          MEANING
+  ----          -------
+  -t table      Specify table (default: filter)
+  -A chain      Append rule to END of chain
+  -I chain N    Insert rule at position N (default: 1=top)
+  -D chain N    Delete rule at position N
+  -D chain rule Delete specific rule matching criteria
+  -R chain N    Replace rule at position N
+  -F [chain]    Flush (delete all rules) from chain
+  -Z [chain]    Zero packet/byte counters
+  -L [chain]    List rules in chain
+  -S [chain]    Print rules in iptables-save format
+  -N chain      Create new user-defined chain
+  -X chain      Delete user-defined chain (must be empty)
+  -E old new    Rename chain
+  -P chain tgt  Set default policy for chain
+  -n            Numeric output (no DNS lookups)
+  -v            Verbose output
+  --line-numbers Show line numbers
+
+  MATCH CRITERIA FLAGS:
+
+  FLAG                  MEANING
+  ----                  -------
+  -p protocol           Protocol: tcp, udp, icmp, all
+  -s source             Source IP or network
+  -d destination        Destination IP or network
+  -i interface          Input network interface
+  -o interface          Output network interface
+  --sport port          Source port
+  --dport port          Destination port
+  --sport p1:p2         Source port range
+  --dport p1:p2         Destination port range
+  -m state              Load state module
+  --state STATE         Connection state
+  -m multiport          Load multiport module
+  --dports p1,p2,p3     Multiple destination ports
+  -m iprange            Load iprange module
+  --src-range IP1-IP2   Source IP range
+  --dst-range IP1-IP2   Destination IP range
+  -m limit              Load limit module
+  --limit N/sec         Rate limit matching
+  -m string             Load string module
+  --string "text"       Match packet containing string
+
+  TARGETS (Actions):
+
+  TARGET        WHAT IT DOES
+  ------        ------------
+  ACCEPT        Allow packet through — continue processing
+  DROP          Silently discard — no response to sender
+  REJECT        Discard AND send error response to sender
+  LOG           Log packet details — continue to next rule!
+  RETURN        Stop traversing chain — return to caller
+  MASQUERADE    Dynamic SNAT (for dynamic IPs)
+  SNAT          Static Source NAT
+  DNAT          Destination NAT
+  REDIRECT      Redirect to local port
+  MARK          Mark packet for routing/QoS
+
+  DROP vs REJECT:
+
+  DROP:
+  → Packet silently discarded
+  → Sender gets NO response
+  → Sender times out waiting
+  → Attacker gets less info
+  → Use in production!
+
+  REJECT:
+  → Packet discarded + error sent back
+  → Sender gets "connection refused" immediately
+  → Faster for legitimate users to know port closed
+  → Gives more info to potential attackers
+  → Use in development/internal networks
+
+---------------------------------------------------------------
+7. BASIC iptables COMMANDS
+---------------------------------------------------------------
+
+  VIEWING RULES:
+
+  COMMAND                           WHAT IT DOES
+  -------                           ------------
+  iptables -L                       List filter rules (basic)
+  iptables -L -n                    List without DNS resolution
+  iptables -L -v                    List with packet/byte counts
+  iptables -L -n -v                 List numeric + verbose
+  iptables -L -n -v --line-numbers  List with line numbers
+  iptables -L INPUT -n -v           List INPUT chain only
+  iptables -L OUTPUT -n -v          List OUTPUT chain only
+  iptables -L FORWARD -n -v         List FORWARD chain only
+  iptables -t nat -L -n -v          List NAT table rules
+  iptables -S                       Print rules in save format
+
+  READING iptables -L OUTPUT:
+
+  Chain INPUT (policy ACCEPT)
+  target  prot  opt  source         destination
+  ACCEPT  tcp   --   0.0.0.0/0      0.0.0.0/0    tcp dpt:22
+  DROP    tcp   --   1.2.3.4        0.0.0.0/0
+
+  FIELDS:
+  target      → what happens to matching packets
+  prot        → protocol (tcp, udp, icmp, all)
+  opt         → options
+  source      → source IP (0.0.0.0/0 = any)
+  destination → destination IP (0.0.0.0/0 = any)
+  last column → additional match criteria
+
+  MANAGING RULES:
+
+  COMMAND                           WHAT IT DOES
+  -------                           ------------
+  iptables -F                       Flush ALL rules ALL chains!
+  iptables -F INPUT                 Flush INPUT chain only
+  iptables -F OUTPUT                Flush OUTPUT chain only
+  iptables -t nat -F                Flush nat table
+  iptables -X                       Delete all user chains
+  iptables -Z                       Zero all counters
+  iptables -Z INPUT                 Zero INPUT chain counters
+
+  WARNING: iptables -F without saved rules = unprotected server!
+  Always have a recovery plan before flushing!
+
+  SETTING DEFAULT POLICIES:
+
+  COMMAND                           WHAT IT DOES
+  -------                           ------------
+  iptables -P INPUT ACCEPT          Default accept incoming
+  iptables -P INPUT DROP            Default drop incoming
+  iptables -P OUTPUT ACCEPT         Default accept outgoing
+  iptables -P OUTPUT DROP           Default drop outgoing
+  iptables -P FORWARD DROP          Default drop forwarding
+
+  SECURE DEFAULT SETUP:
+  iptables -P INPUT DROP            Block all incoming
+  iptables -P FORWARD DROP          Block all forwarding
+  iptables -P OUTPUT ACCEPT         Allow all outgoing
+
+  THEN add specific ALLOW rules for what you need!
+
+---------------------------------------------------------------
+8. FILTERING BY PROTOCOL & PORT
+---------------------------------------------------------------
+
+  ALLOW SPECIFIC PORTS:
+
+  COMMAND                                       WHAT IT DOES
+  -------                                       ------------
+  iptables -A INPUT -p tcp --dport 22 -j ACCEPT Allow SSH
+  iptables -A INPUT -p tcp --dport 80 -j ACCEPT Allow HTTP
+  iptables -A INPUT -p tcp --dport 443 -j ACCEPT Allow HTTPS
+  iptables -A INPUT -p tcp --dport 21 -j ACCEPT Allow FTP
+  iptables -A INPUT -p tcp --dport 3306 -j ACCEPT Allow MySQL
+  iptables -A INPUT -p tcp --dport 5432 -j ACCEPT Allow PostgreSQL
+  iptables -A INPUT -p tcp --dport 6379 -j ACCEPT Allow Redis
+  iptables -A INPUT -p tcp --dport 27017 -j ACCEPT Allow MongoDB
+  iptables -A INPUT -p udp --dport 53 -j ACCEPT Allow DNS UDP
+  iptables -A INPUT -p tcp --dport 53 -j ACCEPT Allow DNS TCP
+  iptables -A INPUT -p icmp -j ACCEPT           Allow ping (ICMP)
+
+  BLOCK SPECIFIC PORTS:
+
+  COMMAND                                       WHAT IT DOES
+  -------                                       ------------
+  iptables -A INPUT -p tcp --dport 23 -j DROP   Block Telnet
+  iptables -A INPUT -p tcp --dport 25 -j DROP   Block SMTP (spam)
+  iptables -A INPUT -p tcp --dport 135 -j DROP  Block RPC
+  iptables -A INPUT -p tcp --dport 445 -j DROP  Block SMB
+
+  PORT RANGES:
+
+  COMMAND                                           WHAT IT DOES
+  -------                                           ------------
+  iptables -A INPUT -p tcp \
+    --dport 8000:9000 -j ACCEPT                   Allow 8000-9000
+  iptables -A INPUT -p tcp \
+    --dport 30000:32767 -j ACCEPT                 K8s NodePort range
+
+  MULTIPLE PORTS (multiport module):
+
+  COMMAND                                           WHAT IT DOES
+  -------                                           ------------
+  iptables -A INPUT -p tcp \
+    -m multiport --dports 80,443 -j ACCEPT        Allow 80 and 443
+  iptables -A INPUT -p tcp \
+    -m multiport --dports 22,80,443,8080 -j ACCEPT Multiple ports
+  iptables -A INPUT -p tcp \
+    -m multiport --dports 3306,5432,6379 -j DROP  Block DB ports
+
+  PROTOCOL BASED:
+
+  COMMAND                                       WHAT IT DOES
+  -------                                       ------------
+  iptables -A INPUT -p tcp -j ACCEPT            Allow all TCP
+  iptables -A INPUT -p udp -j ACCEPT            Allow all UDP
+  iptables -A INPUT -p icmp -j ACCEPT           Allow all ICMP
+  iptables -A INPUT -p icmp \
+    --icmp-type echo-request -j ACCEPT          Allow ping only
+  iptables -A INPUT -p icmp \
+    --icmp-type echo-request -j DROP            Block ping
+
+  INTERFACE BASED:
+
+  COMMAND                                       WHAT IT DOES
+  -------                                       ------------
+  iptables -A INPUT -i lo -j ACCEPT             Allow loopback
+  iptables -A INPUT -i eth0 -j ACCEPT           Allow eth0 interface
+  iptables -A OUTPUT -o eth0 -j ACCEPT          Allow eth0 output
+  iptables -A INPUT -i eth0 \
+    -p tcp --dport 80 -j ACCEPT                 HTTP on eth0 only
+
+  NOTE: Always allow loopback!
+  iptables -A INPUT -i lo -j ACCEPT
+  iptables -A OUTPUT -o lo -j ACCEPT
+  Without loopback rule → local services break!
+
+---------------------------------------------------------------
+9. FILTERING BY IP ADDRESS
+---------------------------------------------------------------
+
+  ALLOW FROM SPECIFIC IPs:
+
+  COMMAND                                           WHAT IT DOES
+  -------                                           ------------
+  iptables -A INPUT -s 192.168.1.10 -j ACCEPT      Allow specific IP
+  iptables -A INPUT -s 192.168.1.0/24 -j ACCEPT    Allow subnet
+  iptables -A INPUT -s 10.0.0.0/8 -j ACCEPT        Allow network
+  iptables -A INPUT -s 203.0.113.5 \
+    -p tcp --dport 22 -j ACCEPT                    Specific IP → SSH
+  iptables -A INPUT -s 10.0.1.0/24 \
+    -p tcp --dport 3306 -j ACCEPT                  Subnet → MySQL
+
+  BLOCK SPECIFIC IPs:
+
+  COMMAND                                       WHAT IT DOES
+  -------                                       ------------
+  iptables -A INPUT -s 1.2.3.4 -j DROP          Block specific IP
+  iptables -A INPUT -s 1.2.3.0/24 -j DROP       Block subnet
+  iptables -A INPUT -s 10.0.0.0/8 -j DROP       Block network
+  iptables -I INPUT 1 -s 1.2.3.4 -j DROP        Insert at TOP (priority!)
+
+  IP RANGE (iprange module):
+
+  COMMAND                                           WHAT IT DOES
+  -------                                           ------------
+  iptables -A INPUT -m iprange \
+    --src-range 192.168.1.1-192.168.1.50 -j ACCEPT Allow IP range
+  iptables -A INPUT -m iprange \
+    --src-range 10.0.0.1-10.0.0.100 -j DROP       Block IP range
+
+  BLOCK AND LOG BAD IPs:
+
+  # Log first then drop
+  iptables -A INPUT -s 1.2.3.4 \
+    -j LOG --log-prefix "BLOCKED-IP: "
+  iptables -A INPUT -s 1.2.3.4 -j DROP
+
+---------------------------------------------------------------
+10. CONNECTION STATE TRACKING
+---------------------------------------------------------------
+
+  State tracking makes iptables STATEFUL.
+  Tracks the state of network connections.
+  Automatically handles return traffic!
+
+  CONNECTION STATES:
+
+  STATE           MEANING
+  -----           -------
+  NEW             First packet of a new connection
+  ESTABLISHED     Packet belonging to existing connection
+  RELATED         Related to existing (e.g. FTP data, ICMP errors)
+  INVALID         Doesn't belong to any known connection
+
+  STATEFUL FIREWALL RULES:
+
+  # Allow established and related (MOST IMPORTANT RULE!)
+  iptables -A INPUT -m state \
+    --state ESTABLISHED,RELATED -j ACCEPT
+
+  # Drop invalid packets
+  iptables -A INPUT -m state \
+    --state INVALID -j DROP
+
+  # Allow new SSH connections
+  iptables -A INPUT -m state \
+    --state NEW -p tcp --dport 22 -j ACCEPT
+
+  # Allow new HTTP connections
+  iptables -A INPUT -m state \
+    --state NEW -p tcp --dport 80 -j ACCEPT
+
+  WHY ESTABLISHED,RELATED IS CRITICAL:
+  Without it → outbound requests can't receive responses!
+  You make request to google.com → response gets DROPPED!
+  Always add ESTABLISHED,RELATED rule BEFORE default DROP!
+
+  CORRECT ORDER FOR STATEFUL SETUP:
+
+  Step 1: Allow loopback
+  iptables -A INPUT -i lo -j ACCEPT
+
+  Step 2: Allow established/related
+  iptables -A INPUT -m state \
+    --state ESTABLISHED,RELATED -j ACCEPT
+
+  Step 3: Drop invalid
+  iptables -A INPUT -m state \
+    --state INVALID -j DROP
+
+  Step 4: Allow specific new connections
+  iptables -A INPUT -m state \
+    --state NEW -p tcp --dport 22 -j ACCEPT
+
+  Step 5: Default deny (set policy or append)
+  iptables -P INPUT DROP
+
+---------------------------------------------------------------
+11. NAT — NETWORK ADDRESS TRANSLATION
+---------------------------------------------------------------
+
+  NAT lives in the nat TABLE.
+  Used for translating IP addresses and ports.
+
+  TYPES OF NAT:
+
+  SNAT (Source NAT):
+  → Changes SOURCE IP address
+  → Used when masking internal IPs
+  → Happens in POSTROUTING chain
+  → Used for: sharing internet connection
+
+  DNAT (Destination NAT):
+  → Changes DESTINATION IP address
+  → Used for redirecting traffic
+  → Happens in PREROUTING chain
+  → Used for: port forwarding, load balancing
+
+  MASQUERADE:
+  → Dynamic SNAT
+  → Automatically uses outbound interface IP
+  → Best for dynamic IP addresses (home router, cloud)
+  → Happens in POSTROUTING chain
+
+  ENABLE IP FORWARDING FIRST:
+
+  # Temporary
+  echo 1 > /proc/sys/net/ipv4/ip_forward
+
+  # Permanent (add to /etc/sysctl.conf)
+  echo "net.ipv4.ip_forward=1" >> /etc/sysctl.conf
+  sysctl -p
+
+  MASQUERADE (Internet Sharing):
+
+  # Allow all traffic from internal network to internet
+  iptables -t nat -A POSTROUTING \
+    -o eth0 -j MASQUERADE
+
+  # Allow forwarding between interfaces
+  iptables -A FORWARD \
+    -i eth1 -o eth0 -j ACCEPT
+  iptables -A FORWARD \
+    -i eth0 -o eth1 \
+    -m state --state ESTABLISHED,RELATED -j ACCEPT
+
+  SNAT (Static Source NAT):
+
+  # Change source IP for outbound traffic
+  iptables -t nat -A POSTROUTING \
+    -o eth0 \
+    -j SNAT --to-source 203.0.113.1
+
+  # SNAT specific subnet
+  iptables -t nat -A POSTROUTING \
+    -s 192.168.1.0/24 \
+    -o eth0 \
+    -j SNAT --to-source 203.0.113.1
+
+  DNAT (Destination NAT):
+
+  # Forward all port 80 traffic to internal server
+  iptables -t nat -A PREROUTING \
+    -p tcp --dport 80 \
+    -j DNAT --to-destination 192.168.1.10:80
+
+  # DNAT specific external IP
+  iptables -t nat -A PREROUTING \
+    -d 203.0.113.1 -p tcp --dport 80 \
+    -j DNAT --to-destination 192.168.1.10:80
+
+---------------------------------------------------------------
+12. PORT FORWARDING
+---------------------------------------------------------------
+
+  Port forwarding = DNAT to redirect traffic
+  to different port or server.
+
+  REDIRECT TO DIFFERENT PORT (same machine):
+
+  # Redirect port 8080 to port 80
+  iptables -t nat -A PREROUTING \
+    -p tcp --dport 8080 \
+    -j REDIRECT --to-port 80
+
+  # Redirect port 443 to port 8443
+  iptables -t nat -A PREROUTING \
+    -p tcp --dport 443 \
+    -j REDIRECT --to-port 8443
+
+  FORWARD TO DIFFERENT SERVER:
+
+  # Forward external port 80 to internal server
+  iptables -t nat -A PREROUTING \
+    -p tcp --dport 80 \
+    -j DNAT --to-destination 192.168.1.10:80
+
+  # Allow forwarded traffic
+  iptables -A FORWARD \
+    -p tcp -d 192.168.1.10 --dport 80 \
+    -m state --state NEW,ESTABLISHED,RELATED \
+    -j ACCEPT
+
+  # MASQUERADE for return traffic
+  iptables -t nat -A POSTROUTING \
+    -j MASQUERADE
+
+  FORWARD MULTIPLE PORTS:
+
+  # Forward ports 80 and 443 to web server
+  iptables -t nat -A PREROUTING \
+    -p tcp -m multiport --dports 80,443 \
+    -j DNAT --to-destination 192.168.1.10
+
+  VIEW NAT RULES:
+
+  iptables -t nat -L -n -v
+  iptables -t nat -L PREROUTING -n -v
+  iptables -t nat -L POSTROUTING -n -v
+
+---------------------------------------------------------------
+13. LOGGING
+---------------------------------------------------------------
+
+  LOG target logs packet details to syslog.
+  LOG does NOT stop processing — continues to next rule!
+  Always add DROP/ACCEPT after LOG rule!
+
+  BASIC LOGGING:
+
+  COMMAND                                           WHAT IT DOES
+  -------                                           ------------
+  iptables -A INPUT -j LOG                          Log all INPUT
+  iptables -A INPUT -s 1.2.3.4 -j LOG               Log from IP
+  iptables -A INPUT -p tcp --dport 22 -j LOG        Log SSH attempts
+
+  LOG OPTIONS:
+
+  OPTION                    MEANING
+  ------                    -------
+  --log-prefix "TEXT: "     Add prefix to log message (max 29 chars)
+  --log-level N             Syslog level (4=warning, 6=info, 7=debug)
+  --log-tcp-sequence        Log TCP sequence numbers
+  --log-tcp-options         Log TCP options
+  --log-ip-options          Log IP options
+  --log-uid                 Log UID of process
+
+  LOGGING EXAMPLES:
+
+  # Log and drop blocked connections
+  iptables -A INPUT -s 1.2.3.4 \
+    -j LOG --log-prefix "BLOCKED-IP: " --log-level 4
+  iptables -A INPUT -s 1.2.3.4 -j DROP
+
+  # Log SSH brute force attempts
+  iptables -A INPUT -p tcp --dport 22 \
+    -m state --state NEW \
+    -j LOG --log-prefix "SSH-ATTEMPT: " --log-level 4
+
+  # Log ALL dropped packets (add before default DROP)
+  iptables -A INPUT \
+    -j LOG --log-prefix "DROPPED-INPUT: " --log-level 4
+  iptables -A INPUT -j DROP
+
+  RATE LIMITING LOGS (prevent log flooding):
+
+  iptables -A INPUT -p tcp --dport 22 \
+    -m state --state NEW \
+    -m limit --limit 3/min --limit-burst 5 \
+    -j LOG --log-prefix "SSH-BRUTE: "
+
+  VIEW LOGS:
+
+  tail -f /var/log/kern.log             → kernel logs
+  tail -f /var/log/syslog               → system logs
+  grep "BLOCKED" /var/log/kern.log      → search blocked
+  grep "SSH-ATTEMPT" /var/log/syslog    → SSH attempts
+  journalctl -k | grep iptables         → via journalctl
+
+---------------------------------------------------------------
+14. SAVING & PERSISTING RULES
+---------------------------------------------------------------
+
+  WARNING: iptables rules are NOT saved across reboots!
+  Rules live in memory only.
+  Must explicitly save to persist!
+
+  VIEWING CURRENT RULES FOR SAVING:
+
+  iptables -S                       → print all filter rules
+  iptables -S -t nat                → print nat rules
+  iptables-save                     → save format all tables
+  iptables-save -t filter           → filter table only
+
+  SAVING RULES:
+
+  UBUNTU / DEBIAN:
+
+  # Method 1: iptables-save
+  iptables-save > /etc/iptables/rules.v4
+  ip6tables-save > /etc/iptables/rules.v6
+
+  # Method 2: iptables-persistent (recommended!)
+  apt install iptables-persistent
+  # Will ask to save current rules during install
+  # OR manually save:
+  netfilter-persistent save
+
+  RHEL / CENTOS:
+
+  # Method 1: service
+  service iptables save
+  # Saves to /etc/sysconfig/iptables
+
+  # Method 2: iptables-services
+  yum install iptables-services
+  systemctl enable iptables
+  systemctl start iptables
+  service iptables save
+
+  RESTORING RULES:
+
+  iptables-restore < /etc/iptables/rules.v4
+  ip6tables-restore < /etc/iptables/rules.v6
+  netfilter-persistent reload
+
+  AUTO-RESTORE ON BOOT (manual method):
+
+  # Add to /etc/rc.local or systemd service
+  iptables-restore < /etc/iptables/rules.v4
+
+  BACKUP AND RESTORE:
+
+  # Backup rules
+  iptables-save > ~/iptables-backup-$(date +%Y%m%d).rules
+
+  # Restore from backup
+  iptables-restore < ~/iptables-backup-20260529.rules
+
+---------------------------------------------------------------
+15. iptables vs nftables
+---------------------------------------------------------------
+
+  nftables is the modern replacement for iptables.
+  Available since Linux kernel 3.13.
+  Ubuntu 20.04+ uses nftables by default!
+
+  COMPARISON:
+
+  FEATURE         iptables            nftables
+  -------         --------            --------
+  Age             1998 (old!)         2014 (modern)
+  Syntax          Per-table commands  Unified syntax
+  Performance     Good                Better!
+  Atomic updates  NO                  YES
+  IPv4+IPv6       Separate tools      Single tool!
+  Learning curve  Steep               Different but cleaner
+  Docker support  YES                 Growing
+  K8s support     YES                 Growing
+  Status          Maintained          Future standard
+
+  nftables EQUIVALENTS:
+
+  iptables command          nftables equivalent
+  ----------------          -------------------
+  iptables -L               nft list ruleset
+  iptables -A INPUT ...     nft add rule ip filter input ...
+  iptables-save             nft list ruleset > rules.nft
+  iptables-restore          nft -f rules.nft
+
+  iptables COMPATIBILITY:
+  Most distros provide iptables-legacy and iptables-nft.
+  iptables-nft = iptables syntax but uses nftables backend!
+  Check which you have: iptables --version
+
+---------------------------------------------------------------
+16. REAL WORLD DEVOPS SCENARIOS
+---------------------------------------------------------------
+
+  SCENARIO 1 — Web Server Firewall:
+
+  #!/bin/bash
+  # Flush existing
+  iptables -F && iptables -X
+
+  # Default policies
+  iptables -P INPUT DROP
+  iptables -P FORWARD DROP
+  iptables -P OUTPUT ACCEPT
+
+  # Allow loopback
+  iptables -A INPUT -i lo -j ACCEPT
+
+  # Allow established connections
+  iptables -A INPUT -m state \
+    --state ESTABLISHED,RELATED -j ACCEPT
+
+  # Drop invalid
+  iptables -A INPUT -m state \
+    --state INVALID -j DROP
+
+  # Allow SSH from office only
+  iptables -A INPUT -s 203.0.113.0/24 \
+    -p tcp --dport 22 -j ACCEPT
+
+  # Allow web traffic
+  iptables -A INPUT -p tcp \
+    -m multiport --dports 80,443 -j ACCEPT
+
+  # Allow ICMP (ping)
+  iptables -A INPUT -p icmp \
+    --icmp-type echo-request \
+    -m limit --limit 5/sec -j ACCEPT
+
+  # Log and drop everything else
+  iptables -A INPUT -j LOG \
+    --log-prefix "DROPPED: " --log-level 4
+  iptables -A INPUT -j DROP
+
+  # Save rules
+  netfilter-persistent save
+  echo "Web server firewall configured!"
+
+  SCENARIO 2 — Block Brute Force SSH:
+
+  # Allow max 5 new SSH connections per minute
+  iptables -A INPUT -p tcp --dport 22 \
+    -m state --state NEW \
+    -m limit --limit 5/min --limit-burst 5 \
+    -j ACCEPT
+
+  # Log and drop excess attempts
+  iptables -A INPUT -p tcp --dport 22 \
+    -m state --state NEW \
+    -j LOG --log-prefix "SSH-BRUTE-FORCE: "
+
+  iptables -A INPUT -p tcp --dport 22 \
+    -m state --state NEW \
+    -j DROP
+
+  SCENARIO 3 — Database Server (private only):
+
+  # Allow MySQL only from app server subnet
+  iptables -A INPUT -s 10.0.1.0/24 \
+    -p tcp --dport 3306 -j ACCEPT
+
+  # Block MySQL from everywhere else
+  iptables -A INPUT -p tcp --dport 3306 -j DROP
+
+  # Block PostgreSQL from everywhere except app
+  iptables -A INPUT -s 10.0.1.0/24 \
+    -p tcp --dport 5432 -j ACCEPT
+  iptables -A INPUT -p tcp --dport 5432 -j DROP
+
+  SCENARIO 4 — Block IP Automatically (fail2ban style):
+
+  #!/bin/bash
+  # Parse auth log and block IPs with >10 failed attempts
+  grep "Failed password" /var/log/auth.log | \
+    awk '{print $(NF-3)}' | \
+    sort | uniq -c | \
+    awk '$1 > 10 {print $2}' | \
+    while read ip; do
+      if ! iptables -L INPUT -n | grep -q "$ip"; then
+        iptables -I INPUT 1 -s "$ip" -j DROP
+        echo "Blocked attacker: $ip"
+      fi
+    done
+
+  SCENARIO 5 — Docker-Friendly Rules:
+
+  # Docker manages its own iptables rules
+  # Add rules in DOCKER-USER chain to not conflict!
+
+  # Allow specific port for container
+  iptables -I DOCKER-USER \
+    -p tcp --dport 8080 -j ACCEPT
+
+  # Block external access to container port
+  iptables -I DOCKER-USER \
+    ! -i docker0 \
+    -p tcp --dport 8080 -j DROP
+
+  SCENARIO 6 — NAT Gateway (Share Internet):
+
+  # Enable IP forwarding
+  echo 1 > /proc/sys/net/ipv4/ip_forward
+
+  # NAT for outbound traffic (eth0 = internet interface)
+  iptables -t nat -A POSTROUTING \
+    -o eth0 -j MASQUERADE
+
+  # Allow forwarding
+  iptables -A FORWARD \
+    -i eth1 -o eth0 -j ACCEPT
+  iptables -A FORWARD \
+    -i eth0 -o eth1 \
+    -m state \
+    --state ESTABLISHED,RELATED -j ACCEPT
+
+---------------------------------------------------------------
+17. COMPLETE FIREWALL SCRIPT
+---------------------------------------------------------------
+
+  #!/bin/bash
+  # Complete iptables firewall setup
+  # Tested on Ubuntu 22.04
+
+  set -e
+
+  echo "Configuring iptables firewall..."
+
+  # ─── FLUSH ALL EXISTING RULES ────────────────────────────
+  iptables -F
+  iptables -X
+  iptables -t nat -F
+  iptables -t nat -X
+  iptables -t mangle -F
+  iptables -t mangle -X
+  iptables -t raw -F
+  iptables -t raw -X
+
+  # ─── DEFAULT POLICIES ────────────────────────────────────
+  iptables -P INPUT DROP
+  iptables -P FORWARD DROP
+  iptables -P OUTPUT ACCEPT
+
+  # ─── LOOPBACK ────────────────────────────────────────────
+  iptables -A INPUT -i lo -j ACCEPT
+  iptables -A OUTPUT -o lo -j ACCEPT
+
+  # ─── STATEFUL RULES ──────────────────────────────────────
+  # Allow established and related
+  iptables -A INPUT -m state \
+    --state ESTABLISHED,RELATED -j ACCEPT
+
+  # Drop invalid packets
+  iptables -A INPUT -m state \
+    --state INVALID -j DROP
+
+  # ─── ICMP (PING) ─────────────────────────────────────────
+  # Allow ping with rate limiting
+  iptables -A INPUT -p icmp \
+    --icmp-type echo-request \
+    -m limit --limit 5/sec \
+    --limit-burst 10 -j ACCEPT
+
+  # ─── SSH ─────────────────────────────────────────────────
+  # Allow SSH with brute force protection
+  iptables -A INPUT -p tcp --dport 22 \
+    -m state --state NEW \
+    -m limit --limit 5/min \
+    --limit-burst 5 -j ACCEPT
+
+  # ─── WEB TRAFFIC ─────────────────────────────────────────
+  iptables -A INPUT -p tcp \
+    -m multiport --dports 80,443 \
+    -m state --state NEW -j ACCEPT
+
+  # ─── MONITORING ──────────────────────────────────────────
+  # Allow Prometheus from monitoring subnet
+  iptables -A INPUT -s 10.0.2.0/24 \
+    -p tcp --dport 9090 -j ACCEPT
+
+  # Allow node exporter from monitoring subnet
+  iptables -A INPUT -s 10.0.2.0/24 \
+    -p tcp --dport 9100 -j ACCEPT
+
+  # ─── DATABASE (private subnet only) ──────────────────────
+  iptables -A INPUT -s 10.0.1.0/24 \
+    -p tcp --dport 3306 -j ACCEPT
+  iptables -A INPUT -s 10.0.1.0/24 \
+    -p tcp --dport 5432 -j ACCEPT
+
+  # ─── LOGGING ─────────────────────────────────────────────
+  # Log dropped packets (rate limited to avoid flood)
+  iptables -A INPUT \
+    -m limit --limit 5/min \
+    -j LOG \
+    --log-prefix "IPT-DROPPED: " \
+    --log-level 4
+
+  # ─── FINAL DROP ──────────────────────────────────────────
+  iptables -A INPUT -j DROP
+
+  # ─── SAVE RULES ──────────────────────────────────────────
+  netfilter-persistent save
+
+  echo "Firewall configured and saved!"
+  echo ""
+  echo "Current rules:"
+  iptables -L -n -v
+
+---------------------------------------------------------------
+18. KEY TAKEAWAYS
+---------------------------------------------------------------
+
+  [01] iptables = Tables → Chains → Rules hierarchy.
+       filter table for firewall rules.
+       nat table for NAT and port forwarding.
+       Always specify -t table (default is filter).
+
+  [02] Rules checked TOP to BOTTOM.
+       FIRST matching rule wins. Order is critical!
+       Use -I to insert at top, -A to append at bottom.
+
+  [03] Three main chains: INPUT (to server),
+       OUTPUT (from server), FORWARD (through server).
+       Most firewall rules go in INPUT chain!
+
+  [04] Default DENY is best practice for INPUT.
+       iptables -P INPUT DROP
+       Then explicitly ALLOW only what you need!
+
+  [05] ALWAYS allow loopback interface first!
+       iptables -A INPUT -i lo -j ACCEPT
+       Without it — local services break badly!
+
+  [06] ESTABLISHED,RELATED rule is MANDATORY!
+       Without it — server can't receive responses
+       to its own outbound requests. Always add it!
+
+  [07] DROP = silent discard (no response sent).
+       REJECT = discard + error sent to client.
+       Use DROP in production — less info for attackers!
+
+  [08] LOG target does NOT stop processing!
+       Always add DROP/ACCEPT AFTER LOG rule.
+       LOG just records — then continues to next rule.
+
+  [09] iptables rules are NOT persistent by default!
+       Install iptables-persistent on Ubuntu.
+       Always save with netfilter-persistent save!
+
+  [10] IP forwarding must be enabled for NAT to work!
+       echo 1 > /proc/sys/net/ipv4/ip_forward
+       Make permanent in /etc/sysctl.conf!
+
+  [11] Docker uses iptables internally!
+       Don't conflict — use DOCKER-USER chain
+       for custom rules on Docker hosts!
+
+  [12] nftables is the modern replacement.
+       iptables still widely used and maintained.
+       Learn iptables first — nftables concepts similar!
+
+===============================================================
+QUICK REFERENCE CHEAT SHEET
+===============================================================
+
+  VIEW RULES:
+    iptables -L -n -v             → list all rules
+    iptables -L -n -v --line-numbers → with numbers
+    iptables -t nat -L -n -v      → nat table rules
+    iptables -S                   → save format
+
+  MANAGE RULES:
+    iptables -A INPUT [rule] -j TARGET   → append
+    iptables -I INPUT 1 [rule] -j TARGET → insert top
+    iptables -D INPUT [number]           → delete by number
+    iptables -F                          → flush all!
+    iptables -P INPUT DROP               → default policy
+
+  COMMON ALLOW RULES:
+    iptables -A INPUT -i lo -j ACCEPT
+    iptables -A INPUT -m state \
+      --state ESTABLISHED,RELATED -j ACCEPT
+    iptables -A INPUT -p tcp --dport 22 -j ACCEPT
+    iptables -A INPUT -p tcp \
+      -m multiport --dports 80,443 -j ACCEPT
+
+  NAT:
+    iptables -t nat -A POSTROUTING \
+      -o eth0 -j MASQUERADE
+    iptables -t nat -A PREROUTING \
+      -p tcp --dport 80 \
+      -j DNAT --to 192.168.1.10:80
+
+  SAVE & RESTORE:
+    iptables-save > rules.v4
+    iptables-restore < rules.v4
+    netfilter-persistent save
+    netfilter-persistent reload
+
+  TARGETS:
+    ACCEPT    → allow through
+    DROP      → silent discard
+    REJECT    → discard + error
+    LOG       → log (continues!)
+    MASQUERADE → dynamic SNAT
+    DNAT      → change destination
+    SNAT      → change source
+
+===============================================================
+   iptables Deep Dive Complete! 🔥
+   GitHub: #120DaysOfDevOps
+===============================================================
